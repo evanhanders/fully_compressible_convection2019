@@ -91,6 +91,7 @@ def initialize_output(solver, de_domain, data_dir,
         # Analysis
         slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
         slices.add_task("T1 + T0", name='T')
+        slices.add_task("(T1 - plane_avg(T1))", name='T_fluc')
         slices.add_task("enstrophy")
         slices.add_task("vel_rms")
         slices.add_task("u")

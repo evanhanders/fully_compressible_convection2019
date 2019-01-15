@@ -5,7 +5,7 @@ Usage:
     bouss_convection.py [options] 
 
 Options:
-    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e5]
+    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e6]
     --Prandtl=<Prandtl>        Prandtl number = nu/kappa [default: 1]
     --nz=<nz>                  Vertical resolution [default: 64]
     --nx=<nx>                  Horizontal resolution; if not set, nx=aspect*nz_cz
@@ -21,6 +21,7 @@ Options:
     --no_slip                  no slip boundary conditions top/bottom; default if no choice is made
 
     --BC_driven                If flagged, study BC driven, not internally heated
+    --stable_layer             If flagged, run with a stable layer at the bottom
 
     --3D                       Run in 3D
     --mesh=<mesh>              Processor mesh if distributing 3D run in 2D 
@@ -64,7 +65,7 @@ checkpoint_min = 30
 def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspect=4,
                     fixed_f=False, fixed_t=False, fixed_f_fixed_t = True, fixed_t_fixed_f=False,
                     stress_free=False, no_slip=True,
-                    IH=True,
+                    IH=True, stable_layer=True,
                     restart=None,
                     run_time=23.5, run_time_buoyancy=None, run_time_therm=1,
                     output_dt=0.2,
@@ -134,7 +135,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
         logger.info("resolution: [{}x{}]".format(nx, nz))
         equations = BoussinesqEquations2D(de_domain)
     equations.set_IVP()
-    convection = BoussinesqConvection(equations, Rayleigh=Rayleigh, Prandtl=Prandtl, IH=IH, fixed_t=fixed_t)
+    convection = BoussinesqConvection(equations, Rayleigh=Rayleigh, Prandtl=Prandtl, IH=IH, fixed_t=fixed_t, stable=stable_layer)
     equations.set_equations()
     equations.set_BC(**bc_dict)
 
@@ -164,12 +165,12 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
     Hermitian_cadence = 100
 
     # Analysis
-    max_dt    = output_dt
+    dt = max_dt    = output_dt
     analysis_tasks = initialize_output(solver, de_domain, data_dir, coeff_output=coeff_output, 
                                        output_dt=output_dt, mode=mode, volumes_output=volume_output)
 
     # CFL
-    CFL = flow_tools.CFL(solver, initial_dt=0.1, cadence=1, safety=cfl_safety,
+    CFL = flow_tools.CFL(solver, initial_dt=dt, cadence=1, safety=cfl_safety,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:
         CFL.add_velocities(('u', 'v', 'w'))
@@ -301,6 +302,8 @@ if __name__ == "__main__":
     data_dir = args['--root_dir'] + '/' + sys.argv[0].split('.py')[0]
     if args['--BC_driven']:
         data_dir += '_BCdriven'
+    if args['--stable_layer']:
+        data_dir += '_stable'
     if args['--3D']:
         data_dir += '_3D'
     else:
@@ -360,6 +363,7 @@ if __name__ == "__main__":
                           stress_free         = stress_free,
                           no_slip             = no_slip, 
                           IH                  = not(args['--BC_driven']),
+                          stable_layer        = args['--stable_layer'],
                           threeD              = args['--3D'],
                           mesh                = mesh,
                           restart             = args['--restart'],

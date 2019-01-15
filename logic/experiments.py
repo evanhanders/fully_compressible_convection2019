@@ -11,9 +11,9 @@ except:
 
 class BoussinesqConvection:
 
-    def __init__(self, equations, Rayleigh=1e4, Prandtl=1, IH=True, fixed_t=False):
+    def __init__(self, equations, Rayleigh=1e4, Prandtl=1, IH=True, fixed_t=False, stable=False):
         self.equations = equations
-        self._set_parameters(Rayleigh, Prandtl, IH=IH, fixed_t=fixed_t)
+        self._set_parameters(Rayleigh, Prandtl, IH=IH, fixed_t=fixed_t, stable=stable)
         self._set_subs()
         return
 
@@ -37,7 +37,7 @@ class BoussinesqConvection:
         logger.info("Starting with T1 perturbations of amplitude A0 = {:g}".format(A0))
 
 
-    def _set_parameters(self, Rayleigh, Prandtl, IH=True, fixed_t=False):
+    def _set_parameters(self, Rayleigh, Prandtl, IH=True, fixed_t=False, stable=False):
         """
         Set up important parameters of the problem for boussinesq convection. Assumes domain spans
         z = [0, 1]
@@ -46,7 +46,7 @@ class BoussinesqConvection:
         self.T0        = self.equations.de_domain.new_ncc()
 
         if IH:	
-            if fixed_t:
+            if fixed_t or stable:
                 self.T0_z['g'] = 0.5 - self.equations.de_domain.z
                 self.T0['g']   = 0.5*(self.equations.de_domain.z - self.equations.de_domain.z**2)
             else:
