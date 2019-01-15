@@ -5,9 +5,9 @@ Usage:
     bouss_convection.py [options] 
 
 Options:
-    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e6]
+    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e5]
     --Prandtl=<Prandtl>        Prandtl number = nu/kappa [default: 1]
-    --nz=<nz>                  Vertical resolution [default: 128]
+    --nz=<nz>                  Vertical resolution [default: 64]
     --nx=<nx>                  Horizontal resolution; if not set, nx=aspect*nz_cz
     --ny=<nx>                  Horizontal resolution; if not set, nx=aspect*nz_cz
     --aspect=<aspect>          Aspect ratio of problem [default: 4]
@@ -145,7 +145,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
     logger.info('Solver built')
 
     checkpoint = Checkpoint(data_dir)
-    if isinstance(restart, type(None)):
+    if restart is None:
         convection.set_IC(solver, de_domain, seed=seed)
         dt = None
         mode = 'overwrite'
@@ -207,9 +207,9 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
             logger.info(log_string)
 
             if not_corrected_times and Pe_avg > 1:
-                if not isinstance(run_time_therm, type(None)):
+                if not run_time_therm is None:
                     solver.stop_sim_time = run_time_therm*convection.thermal_time + solver.sim_time
-                elif not isinstance(run_time_buoyancy, type(None)):
+                elif run_time_buoyancy is not None:
                     solver.stop_sim_time  = run_time_buoyancy + solver.sim_time
                 not_corrected_times = False
 
@@ -336,10 +336,10 @@ if __name__ == "__main__":
         ny = None
 
     run_time_buoy = args['--run_time_buoy']
-    if not isinstance(run_time_buoy, type(None)):
+    if run_time_buoy is not None:
         run_time_buoy = float(run_time_buoy)
     run_time_therm = args['--run_time_therm']
-    if not isinstance(run_time_therm, type(None)):
+    if run_time_therm is not None:
         run_time_therm = float(run_time_therm)
 
     mesh = args['--mesh']
