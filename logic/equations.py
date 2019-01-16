@@ -9,48 +9,32 @@ logger = logging.getLogger(__name__.split('.')[-1])
 
 from dedalus import public as de
 
+try:
+    from functions import global_noise
+except:
+    from sys import path
+    path.insert(0, './logic')
+    from logic.functions import global_noise
+
+
+
 class Equations():
     """
     An abstract class that interacts with Dedalus to do some over-arching equation
     setup logic, etc.
     """
 
-    def __init__(self, de_domain, variables=None):
+    def __init__(self, de_domain, de_problem):
         """Initialize the class
 
         Inputs:
             de_domain   -   A DedalusDomain object.
+            de_problem  -   A DedalusProblem object.
         """
-        self.de_domain = de_domain
-        self.variables = variables
+        self.de_domain  = de_domain
+        self.de_problem = de_problem
         return
     
-    def set_IVP(self, *args, ncc_cutoff=1e-10, **kwargs):
-        """
-        Constructs and initial value problem of the current object's equation set
-        """
-        self.problem_type = 'IVP'
-        self.problem = de.IVP(self.de_domain.domain, variables=self.variables, ncc_cutoff=ncc_cutoff)
-
-    def set_EVP(self, *args, ncc_cutoff=1e-10, tolerance=1e-10, **kwargs):
-        """
-        Constructs an eigenvalue problem of the current objeect's equation set.
-        Note that dt(f) = omega * f, not i * omega * f, so real parts of omega
-        are growth / shrinking nodes, imaginary parts are oscillating.
-        """
-
-        self.problem_type = 'EVP'
-        self.problem = de.EVP(self.de_domain.domain, variables=self.variables, eigenvalue='omega', ncc_cutoff=ncc_cutoff, tolerance=tolerance)
-        self.problem.substitutions['dt(f)'] = "omega*f"
-
-    def set_equations(self, *args, **kwargs):
-        """ This function must be implemented in child classes """
-        pass
-
-    def _set_subs(self):
-        """ This function must be implemented in child classes """
-        pass
-
 
 class BoussinesqEquations(Equations):
     """
@@ -77,7 +61,7 @@ class BoussinesqEquations(Equations):
         self.set_velocity_BC(stress_free=stress_free, no_slip=no_slip)
         
         for key in self.dirichlet_set:
-            self.problem.meta[key]['z']['dirichlet'] = True
+            self.de_problem.problem.meta[key]['z']['dirichlet'] = True
             
     def set_thermal_BC(self, fixed_f=None, fixed_t=None, fixed_f_fixed_t=None, fixed_t_fixed_f=None):
         """
@@ -95,25 +79,25 @@ class BoussinesqEquations(Equations):
 
         if fixed_f:
             logger.info("Thermal BC: fixed flux (full form)")
-            self.problem.add_bc( "left(T1_z) = 0")
-            self.problem.add_bc("right(T1_z) = 0")
+            self.de_problem.problem.add_bc( "left(T1_z) = 0")
+            self.de_problem.problem.add_bc("right(T1_z) = 0")
             self.dirichlet_set.append('T1_z')
         elif fixed_t:
             logger.info("Thermal BC: fixed temperature (T1)")
-            self.problem.add_bc( "left(T1) = 0")
-            self.problem.add_bc("right(T1) = 0")
+            self.de_problem.problem.add_bc( "left(T1) = 0")
+            self.de_problem.problem.add_bc("right(T1) = 0")
             self.dirichlet_set.append('T1')
         elif fixed_f_fixed_t:
             logger.info("Thermal BC: fixed flux/fixed temperature")
-            self.problem.add_bc("left(T1_z) = 0")
-            self.problem.add_bc("right(T1)  = 0")
+            self.de_problem.problem.add_bc("left(T1_z) = 0")
+            self.de_problem.problem.add_bc("right(T1)  = 0")
             self.dirichlet_set.append('T1_z')
             self.dirichlet_set.append('T1')
         elif fixed_t_fixed_f:
             logger.info("Thermal BC: fixed temperature/fixed flux")
             logger.info("warning; these are not fully correct fixed flux conditions yet")
-            self.problem.add_bc("left(T1)    = 0")
-            self.problem.add_bc("right(T1_z) = 0")
+            self.de_problem.problem.add_bc("left(T1)    = 0")
+            self.de_problem.problem.add_bc("right(T1_z) = 0")
             self.dirichlet_set.append('T1_z')
             self.dirichlet_set.append('T1')
         else:
@@ -140,21 +124,21 @@ class BoussinesqEquations(Equations):
         # horizontal velocity boundary conditions
         if stress_free:
             logger.info("Horizontal velocity BC: stress free")
-            self.problem.add_bc("left(Oy) = 0")
-            self.problem.add_bc("right(Oy) = 0")
+            self.de_problem.problem.add_bc("left(Oy) = 0")
+            self.de_problem.problem.add_bc("right(Oy) = 0")
             self.dirichlet_set.append('Oy')
             if self.de_domain.dimensions == 3:
-                self.problem.add_bc("left(Ox) = 0")
-                self.problem.add_bc("right(Ox) = 0")
+                self.de_problem.problem.add_bc("left(Ox) = 0")
+                self.de_problem.problem.add_bc("right(Ox) = 0")
                 self.dirichlet_set.append('Ox')
         elif no_slip:
             logger.info("Horizontal velocity BC: no slip")
-            self.problem.add_bc( "left(u) = 0")
-            self.problem.add_bc("right(u) = 0")
+            self.de_problem.problem.add_bc( "left(u) = 0")
+            self.de_problem.problem.add_bc("right(u) = 0")
             self.dirichlet_set.append('u')
             if self.de_domain.dimensions == 3:
-                self.problem.add_bc( "left(v) = 0")
-                self.problem.add_bc("right(v) = 0")
+                self.de_problem.problem.add_bc( "left(v) = 0")
+                self.de_problem.problem.add_bc("right(v) = 0")
                 self.dirichlet_set.append('v')
         else:
             logger.error("Incorrect horizontal velocity boundary conditions specified")
@@ -162,17 +146,49 @@ class BoussinesqEquations(Equations):
 
         # vertical velocity boundary conditions
         logger.info("Vertical velocity BC: impenetrable")
-        self.problem.add_bc( "left(w) = 0")
+        self.de_problem.problem.add_bc( "left(w) = 0")
         if self.de_domain.dimensions == 2:
-            self.problem.add_bc("right(p) = 0", condition="(nx == 0)")
-            self.problem.add_bc("right(w) = 0", condition="(nx != 0)")
+            self.de_problem.problem.add_bc("right(p) = 0", condition="(nx == 0)")
+            self.de_problem.problem.add_bc("right(w) = 0", condition="(nx != 0)")
         elif self.de_domain.dimensions == 3:
-            self.problem.add_bc("right(p) = 0", condition="(nx == 0) and (ny == 0)")
-            self.problem.add_bc("right(w) = 0", condition="(nx != 0) or  (ny != 0)")
+            self.de_problem.problem.add_bc("right(p) = 0", condition="(nx == 0) and (ny == 0)")
+            self.de_problem.problem.add_bc("right(w) = 0", condition="(nx != 0) or  (ny != 0)")
         else:
-            self.problem.add_bc("right(w) = 0")
+            self.de_problem.problem.add_bc("right(w) = 0")
         self.dirichlet_set.append('w')
-        
+
+    def set_IC(self, experiment, checkpoint, restart=None, checkpoint_dt=1800, overwrite=True, A0=1e-6, **kwargs):
+        """
+        Set initial conditions as random noise.  I *think* characteristic
+        temperature perturbutations are on the order of P, as in the energy
+        equation, so our perturbations should be small, comparably (to start
+        at a low Re even at large Ra, this is necessary)
+        """
+        if restart is None:
+            # initial conditions
+            T_IC = self.de_problem.solver.state['T1']
+            T_z_IC = self.de_problem.solver.state['T1_z']
+                
+            noise = global_noise(self.de_domain, **kwargs)
+            noise.set_scales(self.de_domain.dealias, keep_data=True)
+            T_IC.set_scales(self.de_domain.dealias, keep_data=True)
+            experiment.T0.set_scales(self.de_domain.dealias, keep_data=True)
+            T_IC['g'] = A0*experiment.P*np.sin(np.pi*self.de_domain.z_de/self.de_domain.Lz)*noise['g']*experiment.T0['g']
+            T_IC.differentiate('z', out=T_z_IC)
+            logger.info("Starting with T1 perturbations of amplitude A0 = {:g}".format(A0))
+            dt = None
+            mode = 'overwrite'
+        else:
+            logger.info("restarting from {}".format(restart))
+            dt = checkpoint.restart(restart, self.de_problem.solver)
+            if overwrite:
+                mode = 'overwrite'
+            else:
+                mode = 'append'
+        checkpoint.set_checkpoint(self.de_problem.solver, wall_dt=checkpoint_dt, mode=mode)
+        return dt, mode
+ 
+       
 
 class BoussinesqEquations2D(BoussinesqEquations):
 
@@ -186,23 +202,23 @@ class BoussinesqEquations2D(BoussinesqEquations):
             w    - Vertical velocity
             Oy   - y-vorticity (out of plane)
         """
-        variables = ['T1_z','T1','p','u','w','Oy']
-        super(BoussinesqEquations2D, self).__init__(*args, variables=variables, **kwargs)
+        super(BoussinesqEquations2D, self).__init__(*args, **kwargs)
+        self.de_problem.variables = ['T1_z','T1','p','u','w','Oy']
 
     def _set_subs(self, kx=0):
         if self.de_domain.dimensions == 1:
-            self.problem.parameters['j'] = 1j
-            self.problem.substitutions['dx(f)'] = "j*kx*(f)"
-            self.problem.parameters['kx'] = kx
+            self.de_problem.problem.parameters['j'] = 1j
+            self.de_problem.problem.substitutions['dx(f)'] = "j*kx*(f)"
+            self.de_problem.problem.parameters['kx'] = kx
 
-        self.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + w * A_z)'
-        self.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dz(A_z))'
+        self.de_problem.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + w * A_z)'
+        self.de_problem.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dz(A_z))'
        
-        self.problem.substitutions['v'] = '0'
-        self.problem.substitutions['dy(A)'] = '0'
+        self.de_problem.problem.substitutions['v'] = '0'
+        self.de_problem.problem.substitutions['dy(A)'] = '0'
 
-        self.problem.substitutions['Ox'] = '(dy(w) - dz(v))'
-        self.problem.substitutions['Oz'] = '(dx(v) - dy(u))'
+        self.de_problem.problem.substitutions['Ox'] = '(dy(w) - dz(v))'
+        self.de_problem.problem.substitutions['Oz'] = '(dx(v) - dy(u))'
 
     def set_equations(self, kx = 0):
         """
@@ -228,17 +244,17 @@ class BoussinesqEquations2D(BoussinesqEquations):
         # 2D Boussinesq hydrodynamics
 
         logger.debug('Adding Eqn: Incompressibility constraint')
-        self.problem.add_equation("dx(u) + dz(w) = 0")
+        self.de_problem.problem.add_equation("dx(u) + dz(w) = 0")
         logger.debug('Adding Eqn: T1_z defn')
-        self.problem.add_equation("T1_z - dz(T1) = 0")
+        self.de_problem.problem.add_equation("T1_z - dz(T1) = 0")
         logger.debug('Adding Eqn: Vorticity defn')
-        self.problem.add_equation("Oy - dz(u) + dx(w) = 0")
+        self.de_problem.problem.add_equation("Oy - dz(u) + dx(w) = 0")
         logger.debug('Adding Eqn: Momentum, x')
-        self.problem.add_equation("dt(u)  - R*dz(Oy)  + dx(p)              =  v*Oz - w*Oy ")
+        self.de_problem.problem.add_equation("dt(u)  - R*dz(Oy)  + dx(p)              =  v*Oz - w*Oy ")
         logger.debug('Adding Eqn: Momentum, z')
-        self.problem.add_equation("dt(w)  + R*dx(Oy)  + dz(p)    - T1      =  u*Oy - v*Ox ")
+        self.de_problem.problem.add_equation("dt(w)  + R*dx(Oy)  + dz(p)    - T1      =  u*Oy - v*Ox ")
         logger.debug('Adding Eqn: Energy')
-        self.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z   = -UdotGrad(T1, T1_z)")
+        self.de_problem.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z   = -UdotGrad(T1, T1_z)")
 
 class BoussinesqEquations3D(BoussinesqEquations):
 
@@ -255,22 +271,22 @@ class BoussinesqEquations3D(BoussinesqEquations):
             w    - Vertical velocity
             w_z  - z-derivative of w
         """
-        variables=['T1','T1_z','p','u','v', 'w','Ox', 'Oy', 'Oz']
-        super(BoussinesqEquations3D, self).__init__(*args, variables=variables, **kwargs)
+        super(BoussinesqEquations3D, self).__init__(*args, **kwargs)
+        self.de_problem.variables=['T1','T1_z','p','u','v', 'w','Ox', 'Oy', 'Oz']
 
     def _set_subs(self, kx=0, ky=0):
         """
         Sets up substitutions that are useful for the Boussinesq equations or for outputs
         """
         if self.dimensions == 1:
-            self.problem.parameters['j'] = 1j
-            self.problem.substitutions['dx(f)'] = "j*kx*(f)"
-            self.problem.parameters['kx'] = kx
-            self.problem.substitutions['dy(f)'] = "j*ky*(f)"
-            self.problem.parameters['ky'] = ky
+            self.de_problem.problem.parameters['j'] = 1j
+            self.de_problem.problem.substitutions['dx(f)'] = "j*kx*(f)"
+            self.de_problem.problem.parameters['kx'] = kx
+            self.de_problem.problem.substitutions['dy(f)'] = "j*ky*(f)"
+            self.de_problem.problem.parameters['ky'] = ky
  
-        self.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + v * dy(A) + w * A_z)'
-        self.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dy(dy(A)) + dz(A_z))'
+        self.de_problem.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + v * dy(A) + w * A_z)'
+        self.de_problem.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dy(dy(A)) + dz(A_z))'
 
     def set_equations(self, kx = 0, ky = 0):
         """
@@ -279,21 +295,21 @@ class BoussinesqEquations3D(BoussinesqEquations):
         self._set_subs(kx=kx, ky=ky)
 
         logger.debug('Adding Eqn: Incompressibility constraint')
-        self.problem.add_equation("dx(u) + dy(v) + dz(w) = 0")
+        self.de_problem.problem.add_equation("dx(u) + dy(v) + dz(w) = 0")
         logger.debug('Adding Eqn: Energy')
-        self.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z           = -UdotGrad(T1, T1_z)")
+        self.de_problem.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z           = -UdotGrad(T1, T1_z)")
         logger.debug('Adding Eqn: Momentum, x')
-        self.problem.add_equation("dt(u)  + R*(dy(Oz) - dz(Oy))  + dx(p)       =  v*Oz - w*Oy ")
+        self.de_problem.problem.add_equation("dt(u)  + R*(dy(Oz) - dz(Oy))  + dx(p)       =  v*Oz - w*Oy ")
         logger.debug('Adding Eqn: Momentum, y')
-        self.problem.add_equation("dt(v)  + R*(dz(Ox) - dx(Oz))  + dy(p)       =  w*Ox - u*Oz ")
+        self.de_problem.problem.add_equation("dt(v)  + R*(dz(Ox) - dx(Oz))  + dy(p)       =  w*Ox - u*Oz ")
         logger.debug('Adding Eqn: Momentum, z')
-        self.problem.add_equation("dt(w)  + R*(dx(Oy) - dy(Ox))  + dz(p) - T1  =  u*Oy - v*Ox ")
+        self.de_problem.problem.add_equation("dt(w)  + R*(dx(Oy) - dy(Ox))  + dz(p) - T1  =  u*Oy - v*Ox ")
         logger.debug('Adding Eqn: T1_z defn')
-        self.problem.add_equation("T1_z - dz(T1) = 0")
+        self.de_problem.problem.add_equation("T1_z - dz(T1) = 0")
         logger.debug('Adding Eqn: X Vorticity defn')
-        self.problem.add_equation("Ox - dy(w) + dz(v) = 0")
+        self.de_problem.problem.add_equation("Ox - dy(w) + dz(v) = 0")
         logger.debug('Adding Eqn: Y Vorticity defn')
-        self.problem.add_equation("Oy - dz(u) + dx(w) = 0")
+        self.de_problem.problem.add_equation("Oy - dz(u) + dx(w) = 0")
         logger.debug('Adding Eqn: Z Vorticity defn')
-        self.problem.add_equation("Oz - dx(v) + dy(u) = 0")
+        self.de_problem.problem.add_equation("Oz - dx(v) + dy(u) = 0")
 
