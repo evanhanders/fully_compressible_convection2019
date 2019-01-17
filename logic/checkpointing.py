@@ -1,3 +1,7 @@
+"""
+A simple checkpointing class, written by Jeff Oishi, during the implementation
+of checkpointing-related functionality in dedalus (append mode, etc.)
+"""
 import pathlib 
 import h5py
 import numpy as np

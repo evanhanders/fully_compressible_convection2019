@@ -13,29 +13,48 @@ class DedalusDomain:
     the domain, for use in broad functions.
 
     Attributes:
-        nx, ny      -- Integers. The coefficient resolution in x, y
-        Lx, Ly      -- Integers. The size of the domain in simulation units in x, y
-        nz          -- Integer or List. Coefficient resolution (z).
-        Lz          -- Integer or List. Size of domain in simulation units (z)
-        dimension   -- An integer. Number of problem dimensions (1-, 2-, 3D), (z, (x,z), (x,y,z)) 
-        bases       -- A list of the basis objects in the domain
-        domain      -- The dedalus domain object
-        dealias     -- A float. multiplicative factor for # of gridpoints on dealiased grid.
-        mesh        -- A list. Mesh for dividing processor. np.prod(mesh) must == # of cpus.
-        comm        -- MPI communicator for dedalus.
-        dtype       -- A numpy datatype, the grid dtype of dedalus.
-        x, y, z     -- Arrays containing the gridpoints of the domain for x,y,z (dealias=1)
-        x_de, y_de, z_de -- same as x, y, z, but with dealias.
+    -----------
+        nx, ny           : Integers
+            The coefficient resolution in x, y
+        Lx, Ly           : Floats
+            The size of the domain in simulation units in x, y
+        nz               : Integer or List. 
+            Coefficient resolution (z).
+        Lz               : Integer or List. 
+            Size of domain in simulation units (z)
+        z_bot            : float
+            Value of z at z = 0. (z_top is z_bot + Lz)
+        dimension        : Integer
+            Number of problem dimensions (1-, 2-, 3D), (z, (x,z), (x,y,z)) 
+        bases            : List of Dedalus basis objects.
+            A list of the basis objects in the domain
+        domain           : The dedalus domain object
+            The thing that this class is wrapping for easy access / expansion of
+        dealias          : Float. 
+            multiplicative factor for # of gridpoints on dealiased grid.
+        mesh             : List of integers.
+            Mesh for dividing processor. The product of list elements must == # of cpus.
+        comm             : MPI communicator.
+            The MPI communicator object for dedalus (generally COMM_WORLD or COMM_SELF)
+        dtype            : A NumPy datatype
+            The grid dtype of dedalus.
+        x, y, z          : NumPy Arrays
+            The gridpoints of the domain for x,y,z (dealias=1)
+        x_de, y_de, z_de : NumPy Arrays
+            The gridpoints of the domain for x,y,z (dealias=dealias)
     """
 
-    def __init__(self, nx, ny, nz, Lx, Ly, Lz, 
+    def __init__(self, nx, ny, nz, Lx, Ly, Lz, z_bot = 0,
                  dimensions=2, mesh=None, dealias=3/2, comm=MPI.COMM_WORLD, dtype=np.float64):
         """
         Initializes a 2- or 3D domain. Horizontal directions (x, y) are Fourier decompositions,
         Vertical direction is either a Chebyshev (if nz, Lz are integers) or a compound
         Chebyshev (if nz, Lz are lists) domain.
 
-        Function inputs which line up with class attributes are described in class docstring.
+        Parameters
+        ----------
+        All parameters match class attributes, as described in the class docstring.
+
         """
         self.nx, self.ny, self.nz = nx, ny, nz
         self.Lx, self.Ly, self.Lz = Lx, Ly, Lz
@@ -56,7 +75,7 @@ class DedalusDomain:
 
         #setup vertical direction
         if isinstance(nz, list) and isinstance(Lz, list):
-            Lz_int = 0
+            Lz_int = z_bot
             z_basis_list = []
             for Lz_i, nz_i in zip(Lz, nz):
                 Lz_top = Lz_i + Lz_int
@@ -69,7 +88,7 @@ class DedalusDomain:
             self.nz_list = nz
             z_basis = de.Compound('z', tuple(z_basis_list), dealias=dealias)
         else:
-            z_basis = de.Chebyshev('z', nz, interval=(0, Lz), dealias=dealias)
+            z_basis = de.Chebyshev('z', nz, interval=(z_bot, Lz), dealias=dealias)
             self.Lz_list = None
             self.nz_list = None
 
@@ -90,10 +109,9 @@ class DedalusDomain:
             self.y, self.y_de = None, None
         self.z    = self.domain.grid(-1)
         self.z_de = self.domain.grid(-1, scales=dealias)
-        print(self.z_de, self.z_de.shape)
 
     def new_ncc(self):
-        ''' Creates a new dedalus field and sets its Fourier meta as constant '''
+        """ Creates a new dedalus field in this domain and sets its Fourier meta as constant """
         field = self.domain.new_field()
         if self.dimensions >= 2:
             field.meta['x']['constant'] = True

@@ -21,7 +21,7 @@ Options:
     --no_slip                  no slip boundary conditions top/bottom; default if no choice is made
 
     --BC_driven                If flagged, study BC driven, not internally heated
-    --stable_layer             If flagged, run with a stable layer at the bottom
+    --z_bot=<z>                If z_bot < 0, there is a stable layer [default: -1]
 
     --3D                       Run in 3D
     --mesh=<mesh>              Processor mesh if distributing 3D run in 2D 
@@ -53,14 +53,14 @@ from logic.problems      import DedalusIVP
 from logic.equations     import BoussinesqEquations2D, BoussinesqEquations3D
 from logic.experiments   import BoussinesqConvection
 from logic.outputs       import initialize_output
-from logic.functions     import clean_makedir
+from logic.functions     import mpi_makedirs
 from logic.checkpointing import Checkpoint
 checkpoint_min = 30
     
 def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspect=4,
                     fixed_f=False, fixed_t=False, fixed_f_fixed_t = True, fixed_t_fixed_f=False,
                     stress_free=False, no_slip=True,
-                    IH=True, stable_layer=True,
+                    IH=True, z_bot=-1,
                     restart=None,
                     run_time=23.5, run_time_buoyancy=None, run_time_therm=1,
                     output_dt=0.2,
@@ -72,7 +72,9 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
     config['logging']['filename'] = os.path.join(data_dir,'logs/dedalus_log')
     config['logging']['file_level'] = 'DEBUG'
 
-    clean_makedir(data_dir)
+    mpi_makedirs(data_dir)
+    logdir = os.path.join(data_dir,'logs')
+    mpi_makedirs(logdir)
     
     logger = logging.getLogger(__name__)
     logger.info("saving run in: {}".format(data_dir))
@@ -119,7 +121,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
         bc_dict['no_slip'] = True
    
 
-    de_domain = DedalusDomain(nx, ny, nz, Lx, Ly, Lz, dimensions=dimensions, mesh=mesh)
+    de_domain = DedalusDomain(nx, ny, nz, Lx, Ly, Lz, z_bot=z_bot, dimensions=dimensions, mesh=mesh)
     de_problem = DedalusIVP(de_domain)
     if threeD:
         logger.info("resolution: [{}x{}x{}]".format(nx, ny, nz))
@@ -128,7 +130,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
         logger.info("resolution: [{}x{}]".format(nx, nz))
         equations = BoussinesqEquations2D(de_domain, de_problem)
     de_problem.build_problem()
-    convection = BoussinesqConvection(de_domain, de_problem, Rayleigh=Rayleigh, Prandtl=Prandtl, IH=IH, fixed_t=fixed_t, stable=stable_layer)
+    convection = BoussinesqConvection(de_domain, de_problem, Rayleigh=Rayleigh, Prandtl=Prandtl, IH=IH)
     equations.set_equations()
     equations.set_BC(**bc_dict)
 
@@ -141,13 +143,15 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, nz=64, nx=None, ny=None, aspe
     de_problem.set_stop_condition(stop_wall_time=run_time*3600, stop_sim_time=stop_sim_time)
 
     checkpoint = Checkpoint(data_dir)
-    dt, mode =     equations.set_IC(convection, checkpoint, restart=restart, seed=seed, checkpoint_dt=checkpoint_min*60, overwrite=overwrite)
+    convection.T0.set_scales(de_domain.dealias, keep_data=True)
+    noise_scale = convection.T0['g'] * convection.P
+    dt, mode =     equations.set_IC(noise_scale, checkpoint, restart=restart, seed=seed, checkpoint_dt=checkpoint_min*60, overwrite=overwrite)
    
     if dt is None:
         dt = max_dt    = output_dt
 
     # Analysis
-    analysis_tasks = initialize_output(de_problem.solver, de_domain, data_dir, coeff_output=coeff_output, 
+    analysis_tasks = initialize_output(de_domain, de_problem, data_dir, coeff_output=coeff_output, 
                                        output_dt=output_dt, mode=mode, volumes_output=volume_output)
 
     # CFL
@@ -193,8 +197,7 @@ if __name__ == "__main__":
         data_dir += '_2D'
     if args['--BC_driven']:
         data_dir += '_BCdriven'
-    if args['--stable_layer']:
-        data_dir += '_stable'
+    data_dir += '_zb{:.2g}'.format(float(args['--z_bot']))
     if fixed_f:
         data_dir += '_fixedF'
     elif fixed_f_fixed_t:
@@ -254,7 +257,7 @@ if __name__ == "__main__":
                           stress_free         = stress_free,
                           no_slip             = no_slip, 
                           IH                  = not(args['--BC_driven']),
-                          stable_layer        = args['--stable_layer'],
+                          z_bot               = float(args['--z_bot']),
                           threeD              = args['--3D'],
                           mesh                = mesh,
                           restart             = args['--restart'],

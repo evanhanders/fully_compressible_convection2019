@@ -3,16 +3,39 @@ import logging
 logger = logging.getLogger(__name__)
 from collections import OrderedDict
 
-def initialize_output(solver, de_domain, data_dir,
-                      max_writes=20, output_dt=0.25, max_vol_writes=2,
-                      mode="overwrite", volumes_output=False, coeff_output=False, volumes_dt=1):
+def initialize_output(de_domain, de_problem, data_dir,
+                      max_writes=20, max_vol_writes=2, output_dt=0.25, output_vol_dt=1,
+                      mode="overwrite", volumes_output=False, coeff_output=False):
     """
-    Sets up output from runs.
+    Sets up Dedalus output tasks for a Boussinesq convection run.
+
+    Parameters
+    ----------
+    de_domain       : DedalusDomain object
+        Contains information about the dedalus domain of the simulation
+    de_problem      : DedalusProblem object
+        Contains information aobut the dedalus problem & solver of the simulation
+    data_dir        : string
+        path to root data directory
+    max_writes      : int, optional
+        Maximum number of simulation output writes per file
+    max_vol_writes  : int, optional
+        Maximum number os imulations output writes per 3D volume file
+    output_dt       : float, optional
+        Simulation time between output writes
+    output_vol_dt   : float, optional
+        Simulation time between 3D volume output writes.
+    mode            : string, optional
+        Write mode for dedalus, "overwrite" or "append"
+    volumes_output  : bool, optional
+        If True, write 3D volumes
+    coeff_output    : bool, optional
+        If True, write coefficient data
     """
 
     # Analysis
     analysis_tasks = OrderedDict()
-    profiles = solver.evaluator.add_file_handler(data_dir+'profiles', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+    profiles = de_problem.solver.evaluator.add_file_handler(data_dir+'profiles', sim_dt=output_dt, max_writes=max_writes, mode=mode)
     profiles.add_task("plane_avg(T1+T0)", name="T")
     profiles.add_task("plane_avg(dz(T1+T0))", name="Tz")
     profiles.add_task("plane_avg(T1)", name="T1")
@@ -28,7 +51,7 @@ def initialize_output(solver, de_domain, data_dir,
 
     analysis_tasks['profiles'] = profiles
 
-    scalar = solver.evaluator.add_file_handler(data_dir+'scalar', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+    scalar = de_problem.solver.evaluator.add_file_handler(data_dir+'scalar', sim_dt=output_dt, max_writes=max_writes, mode=mode)
     scalar.add_task("vol_avg(T1)", name="IE")
     scalar.add_task("vol_avg(KE)", name="KE")
     scalar.add_task("vol_avg(T1) + vol_avg(KE)", name="TE")
@@ -48,7 +71,7 @@ def initialize_output(solver, de_domain, data_dir,
 
     if de_domain.dimensions == 2:
         # Analysis
-        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+        slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
         slices.add_task("T1 + T0", name='T')
         slices.add_task("(T1 - plane_avg(T1))", name='T_fluc')
         slices.add_task("enstrophy")
@@ -58,7 +81,7 @@ def initialize_output(solver, de_domain, data_dir,
         analysis_tasks['slices'] = slices
 
         if coeff_output:
-            coeffs = solver.evaluator.add_file_handler(data_dir+'coeffs', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+            coeffs = de_problem.solver.evaluator.add_file_handler(data_dir+'coeffs', sim_dt=output_dt, max_writes=max_writes, mode=mode)
             coeffs.add_task("T1+T0", name="T", layout='c')
             coeffs.add_task("T1 - plane_avg(T1)", name="T'", layout='c')
             coeffs.add_task("w", layout='c')
@@ -67,7 +90,7 @@ def initialize_output(solver, de_domain, data_dir,
             analysis_tasks['coeffs'] = coeffs
 
     if de_domain.dimensions == 3:
-        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+        slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
         slices.add_task("interp(T1 + T0,         y={})".format(de_domain.Ly/2), name='T')
         slices.add_task("interp(T1 + T0,         z={})".format(0.95*de_domain.Lz), name='T near top')
         slices.add_task("interp(T1 + T0,         z={})".format(de_domain.Lz/2), name='T midplane')
@@ -83,7 +106,7 @@ def initialize_output(solver, de_domain, data_dir,
         analysis_tasks['scalar'].add_task('vol_avg(Rossby)', name='Ro')
 
         if volumes_output:
-            analysis_volume = solver.evaluator.add_file_handler(data_dir+'volumes', sim_dt=volumes_dt, max_writes=max_vol_writes, mode=mode)
+            analysis_volume = de_problem.solver.evaluator.add_file_handler(data_dir+'volumes', sim_dt=output_vol_dt, max_writes=max_vol_writes, mode=mode)
             analysis_volume.add_task("T1 + T0", name="T")
             analysis_volume.add_task("enstrophy", name="enstrophy")
             analysis_volume.add_task("Oz", name="z_vorticity")

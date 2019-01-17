@@ -25,17 +25,26 @@ class DedalusProblem():
     """
     An abstract class that interacts with Dedalus to do some over-arching equation
     setup logic, etc.
+
+    Attributes
+    ----------
+    de_domain    : A DedalusDomain object
+        Contains information about the dedalus domain on which th eproblem is being solved.
+    variables    : List of strings
+        A list of strings containing the names of dedalus problem variables
+    solver       : A solver object, from the Dedalus package.
+        The solver for the problem.
+    problem_type : string
+        Specifies the type of problem being solved ('IVP', 'EVP', etc.)
     """
 
     def __init__(self, de_domain, variables=None):
-        """Initialize the class
-
-        Inputs:
-            de_domain   -   A DedalusDomain object.
+        """Initialize the class.  Arguments are defined in class docstring.
         """
-        self.de_domain = de_domain
-        self.variables = variables
-        self.solver    = None
+        self.de_domain      = de_domain
+        self.variables      = variables
+        self.problem_type   = None
+        self.solver         = None
         return
 
     def build_problem(self):
@@ -44,32 +53,82 @@ class DedalusProblem():
     def build_solver(self):
         pass
 
+    def set_variables(self, variables):
+        """Set the variables, a list of strings, for this dedalus problem."""
+        self.variables = variables
+
 
 class DedalusIVP(DedalusProblem):
+    """
+    An extension of the DedalusProblem class with some important functionality for 
+    initial value problems.
+    """
 
     def __init__(self, *args, **kwargs):
         super(DedalusIVP, self).__init__(*args, **kwargs)
+        self.problem_type = 'IVP'
     
-    def build_problem(self, *args, ncc_cutoff=1e-10, **kwargs):
-        """
-        Constructs and initial value problem of the current object's equation set
+    def build_problem(self, ncc_cutoff=1e-10):
+        """Constructs and initial value problem of the current object's equation set
+
+        Arguments:
+        ----------
+        ncc_cutoff  : float
+            The largest coefficient magnitude to keep track of when building NCCs
         """
         if self.variables is None:
             logger.error("IVP variables must be set before problem is built")
-        self.problem_type = 'IVP'
         self.problem = de.IVP(self.de_domain.domain, variables=self.variables, ncc_cutoff=ncc_cutoff)
 
     def build_solver(self, ts=de.timesteppers.SBDF2):
-        # Build solver
+        """A wrapper on Dedalus' build_solver function
+
+        Arguments:
+        ----------
+        ts      : A Dedalus timestepper object, optional
+            The type of timestepper being used in the problem (RK443, SBDF2, etc)
+        """
         self.solver = self.problem.build_solver(ts)
 
     def set_stop_condition(self, stop_sim_time=np.inf, stop_iteration=np.inf, stop_wall_time=28800):
-        """ Default runs 8 hours (28800 seconds) """
+        """Set the conditions for when the solver should stop timestepping
+        
+        Parameters:
+        -----------
+        stop_sim_time       : float, optional
+            Time at which to stop timestepping (in simulation units)
+        stop_iteration      : float, optional
+            Iteration number at which to stop timestepping
+        stop_wall_time      : float, optional
+            Wall time at which to stop timestepping (in seconds). Default: 8 hours.
+        """
         self.solver.stop_sim_time  = stop_sim_time
         self.solver.stop_iteration = stop_iteration
         self.solver.stop_wall_time = stop_wall_time
 
     def solve_IVP(self, dt, CFL, data_dir, analysis_tasks, track_fields=['Pe'], threeD=False, Hermitian_cadence=100, no_join=False, mode='append'):
+        """Logic for a while-loop that solves an initial value problem.
+
+        Parameters
+        ----------
+        dt                  : float
+            The initial timestep of the simulation
+        CFL                 : a Dedalus CFL object
+            A CFL object that calculates the timestep of the simulation on the fly
+        data_dir            : string
+            The parent directory of output files
+        analysis_tasks      : OrderedDict()
+            An OrderedDict of dedalus FileHandler objects
+        threeD              : bool, optional
+            If True, occasionally force the solution to grid space to remove Hermitian errors
+        Hermitian_cadence   : int, optional
+            The number of timesteps between grid space forcings in 3D.
+        no_join             : bool, optional
+            If True, do not join files at the end of the simulation run.
+        mode                : string, optional
+            Dedalus output mode for final checkpoint. "append" or "overwrite"
+        """
+    
         # Flow properties
         flow = flow_tools.GlobalFlowProperty(self.solver, cadence=1)
         for f in track_fields:
@@ -135,29 +194,3 @@ class DedalusIVP(DedalusProblem):
                 logger.info('Run time: {:f} sec'.format(main_loop_time))
                 logger.info('Run time: {:f} cpu-hr'.format(main_loop_time/60/60*self.de_domain.domain.dist.comm_cart.size))
                 logger.info('iter/sec: {:f} (main loop only)'.format(n_iter_loop/main_loop_time))
-
-
-
-
-class DedalusEVP(DedalusProblem):
-
-    def __init__(self, *args, **kwargs):
-        super(DedalusIVP, self).__init__(*args, **kwargs)
-
-    def build_problem(self, ncc_cutoff=1e-10, tolerance=1e-10):
-        """
-        Constructs an eigenvalue problem of the current objeect's equation set.
-        Note that dt(f) = omega * f, not i * omega * f, so real parts of omega
-        are growth / shrinking nodes, imaginary parts are oscillating.
-        """
-        if self.variables is None:
-            logger.error("IVP variables must be set before problem is built")
-        self.problem_type = 'EVP'
-        self.problem = de.EVP(self.de_domain.domain, variables=self.variables, eigenvalue='omega', ncc_cutoff=ncc_cutoff, tolerance=tolerance)
-        self.problem.substitutions['dt(f)'] = "omega*f"
-
-    def build_solver(self):
-        """ needs to be implemented """
-        pass
-
-

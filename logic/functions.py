@@ -10,6 +10,15 @@ def global_noise(de_domain, seed=42, **kwargs):
     """
     Create a field fielled with random noise of order 1.  Modify seed to
     get varying noise, keep seed the same to directly compare runs.
+
+    Parameters
+    ----------
+    de_domain   : A DedalusDomain object
+        Contains information about the simulation domain
+    seed        : int, optional
+        The seed used in determining the random noise field
+    kwargs      : dict, optional
+        Additional keyword arguments for the filter_field() function
     """
     # Random perturbations, initialized globally for same results in parallel
     gshape = de_domain.domain.dist.grid_layout.global_shape(scales=de_domain.dealias)
@@ -28,14 +37,15 @@ def global_noise(de_domain, seed=42, **kwargs):
 def filter_field(field, frac=0.25):
     """
     Filter a field in coefficient space by cutting off all coefficient above
-    a given threshold.  This is accomplished by changing the scale of a field,
-    forcing it into coefficient space at that small scale, then coming back to
-    the original scale.
+    a given threshold.  This is accomplished by reducing the scale of the field,
+    and then forcing the field into coefficient and then grid space.
 
-    Inputs:
-        field   - The dedalus field to filter
-        frac    - The fraction of coefficients to KEEP POWER IN.  If frac=0.25,
-                    The upper 75% of coefficients are set to 0.
+    Parameters
+    ----------
+    field   : a Field object from the Dedalus package
+        The field to filter
+    frac    : float, optional
+        A number between 0 and 1, the fraction of coefficients to keep power in.
     """
     dom = field.domain
     logger.info("filtering field {} with frac={} using a set-scales approach".format(field.name,frac))
@@ -45,12 +55,15 @@ def filter_field(field, frac=0.25):
     field['g']
     field.set_scales(orig_scale, keep_data=True)
 
-def clean_makedir(data_dir):
+def mpi_makedirs(data_dir):
+    """Create a directory in an MPI-safe way.
+
+    Parameters
+    ----------
+    data_dir    : string
+        The path to the directory being created (either a local path or global path)
+    """
     import mpi4py.MPI
     if mpi4py.MPI.COMM_WORLD.rank == 0:
         if not os.path.exists('{:s}/'.format(data_dir)):
             os.makedirs('{:s}/'.format(data_dir))
-        logdir = os.path.join(data_dir,'logs')
-        if not os.path.exists(logdir):
-            os.mkdir(logdir)
-

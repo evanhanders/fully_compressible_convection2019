@@ -3,29 +3,62 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BoussinesqConvection:
+    """
+    A class that sets all important parameters of a simple Boussinesq convection problem.
 
-    def __init__(self, de_domain, de_problem, Rayleigh=1e4, Prandtl=1, IH=True, fixed_t=False, stable=False):
+    Attributes:
+    -----------
+    de_domain       : A DedalusDomain object
+        Contains information about the dedalus domain
+    de_problem      : A DedalusProblem object
+        Contains information about the problem and solver
+    T0, T0_z        : Field objects, from Dedalus
+        The initial temperature profile, and its derivative
+    P, R            : Floats
+        P = 1/sqrt(Pr * Ra); R = sqrt(Pr/Ra); ~nondimensional diffusive and viscous parameters.
+    thermal_time    : Float
+        The thermal timescale, in simulation units.
+    """
+
+    def __init__(self, de_domain, de_problem, **kwargs):
+        """ Initializes the convective experiment.
+
+        Parameters
+        ----------
+        de_domain       : A DedalusDomain object
+            Contains info about the dedalus domain
+        de_problem      : A DedalusProblem object
+            Contains info about the dedalus problem and solver
+        kwargs          : Dictionary
+            Additional keyword arguments for the BoussinesqConvection._set_parameters function
+        """
         self.de_domain = de_domain
         self.de_problem = de_problem
-        self._set_parameters(Rayleigh, Prandtl, IH=IH, fixed_t=fixed_t, stable=stable)
+        self.T0, self.T0_z, self.P, self.R, self.thermal_time = [None]*5
+        self._set_parameters(**kwargs)
         self._set_subs()
         return
 
-    def _set_parameters(self, Rayleigh, Prandtl, IH=True, fixed_t=False, stable=False):
+    def _set_parameters(self, Rayleigh=1e4, Prandtl=1, IH=True):
         """
-        Set up important parameters of the problem for boussinesq convection. Assumes domain spans
-        z = [0, 1]
+        Set up important parameters of the problem for boussinesq convection. 
+
+        Parameters
+        ----------
+        Rayleigh        : Float 
+            The Rayleigh number, as defined in Anders, Brown, Oishi 2018 and elsewhere
+        Prandtl         : Float
+            The Prandtl number, viscous / thermal diffusivity
+        IH              : bool
+            If True, internally heated convection. If false, boundary-driven convection.
+
         """
         self.T0_z      = self.de_domain.new_ncc()
         self.T0        = self.de_domain.new_ncc()
 
         if IH:	
-            if fixed_t or stable:
-                self.T0_z['g'] = 0.5 - self.de_domain.z
-                self.T0['g']   = 0.5*(self.de_domain.z - self.de_domain.z**2)
-            else:
-                self.T0_z['g'] = -self.de_domain.z
-                self.T0['g']   = 0.5 - 0.5*self.de_domain.z**2
+            self.T0_z['g'] = -self.de_domain.z
+            self.T0_z.antidifferentiate('z', ('right', 1), out=self.T0)
         else:
             self.T0_z['g'] = -1
             self.T0['g']   = self.de_domain.Lz/2 - self.de_domain.z
