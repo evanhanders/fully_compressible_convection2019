@@ -106,7 +106,8 @@ class DedalusIVP(DedalusProblem):
         self.solver.stop_iteration = stop_iteration
         self.solver.stop_wall_time = stop_wall_time
 
-    def solve_IVP(self, dt, CFL, data_dir, analysis_tasks, track_fields=['Pe'], threeD=False, Hermitian_cadence=100, no_join=False, mode='append'):
+    def solve_IVP(self, dt, CFL, data_dir, analysis_tasks, *args,
+                  track_fields=['Pe'], threeD=False, Hermitian_cadence=100, no_join=False, mode='append', **kwargs):
         """Logic for a while-loop that solves an initial value problem.
 
         Parameters
@@ -127,6 +128,8 @@ class DedalusIVP(DedalusProblem):
             If True, do not join files at the end of the simulation run.
         mode                : string, optional
             Dedalus output mode for final checkpoint. "append" or "overwrite"
+        args, kwargs        : list and dictionary
+            Additional arguments and keyword arguments to be passed to the self.special_tasks() function
         """
     
         # Flow properties
@@ -151,14 +154,11 @@ class DedalusIVP(DedalusProblem):
                     for field in self.solver.state.fields:
                         field.require_grid_space()
 
+                self.special_tasks(*args, **kwargs)
+
                 #reporting string
                 flow_avg = flow.grid_average(track_fields[0])
-                log_string =  'Iteration: {:5d}, '.format(self.solver.iteration)
-                log_string += 'Time: {:8.3e}, dt: {:8.3e}, '.format(self.solver.sim_time, dt)
-                for f in track_fields:
-                    log_string += '{}: {:8.3e}/{:8.3e} '.format(f, flow.grid_average(f), flow.max(f))
-                logger.info(log_string)
-
+                self.iteration_report(dt, flow, track_fields)
         except:
             raise
             logger.error('Exception raised, triggering end of main loop.')
@@ -194,3 +194,29 @@ class DedalusIVP(DedalusProblem):
                 logger.info('Run time: {:f} sec'.format(main_loop_time))
                 logger.info('Run time: {:f} cpu-hr'.format(main_loop_time/60/60*self.de_domain.domain.dist.comm_cart.size))
                 logger.info('iter/sec: {:f} (main loop only)'.format(n_iter_loop/main_loop_time))
+    
+    def iteration_report(self, dt, flow, track_fields):
+        """This function is called every iteration of the simulation loop and provides some text output
+        to the user to tell them about the current status of the simulation. This function is meant
+        to be overwritten in inherited child classes for specific use cases.
+
+        Parameters
+        ----------
+        dt  : float
+            The current timestep of the simulation
+        flow : GlobalFlowProperty object, from dedalus
+            Allows instantaneous tracking access to simulation values
+        track_fields : List of strings
+            The fields being tracked by flow
+
+        """
+        log_string =  'Iteration: {:5d}, '.format(self.solver.iteration)
+        log_string += 'Time: {:8.3e}, dt: {:8.3e}, '.format(self.solver.sim_time, dt)
+        for f in track_fields:
+            log_string += '{}: {:8.3e}/{:8.3e} '.format(f, flow.grid_average(f), flow.max(f))
+        logger.info(log_string)
+
+    def special_tasks(self):
+        """An abstract function that occurs every iteration of the simulation. Child classes
+        should implement case-specific logic here. """
+        pass
