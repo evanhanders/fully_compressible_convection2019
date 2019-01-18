@@ -1,2 +1,2 @@
-# boussinesq_IH_convection
+# Fully Compressible Convection
 

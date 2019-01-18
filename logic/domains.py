@@ -1,11 +1,11 @@
-import numpy as np
-
 import logging
 logger = logging.getLogger(__name__)
 
-from dedalus import public as de
-
+import numpy as np
 from mpi4py import MPI
+from dedalus import public as de
+from dedalus.core.field import Field
+
 
 class DedalusDomain:
     """
@@ -119,3 +119,26 @@ class DedalusDomain:
             field.meta['y']['constant'] = True            
         return field
 
+    def generate_vertical_profile(self, field, scales=1):
+        gslices = self.domain.dist.grid_layout.slices(scales=scales)
+        global_array = np.zeros(int(scales*self.nz))
+        local_array  = np.zeros_like(global_array)
+
+        if type(field) is Field:
+            field.set_scales(scales, keep_data=True)
+            indices = list(field['g'].shape)
+            for i in range(len(indices)-1):
+                indices[i] = 0
+            indices[-1] = range(indices[-1])
+            local_array[gslices[-1]] = field['g'][indices]
+        else:
+            indices = list(field.shape)
+            for i in range(len(indices)-1):
+                indices[i] = 0
+            indices[-1] = range(indices[-1])
+            local_array[gslices[-1]  = field[indices]
+
+        self.domain.dist.comm_cart.Allreduce(local_array, global_array, op=MPI.SUM)
+        if not(self.mesh is None):
+            global_array /= mesh[0]
+        return global_array
