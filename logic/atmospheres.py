@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ class IdealGasAtmosphere:
         self.params['gamma'] = gamma
         self.params['Cp'] = gamma*R/(gamma-1.)
         self.params['Cv'] = self.params['Cp'] - R
-        if 'g' is not in self.params.keys():
+        if not('g' in self.params.keys()):
             if g is None:
                 self.params['g'] = self.params['Cp']
             else:
@@ -74,7 +76,18 @@ class IdealGasAtmosphere:
             self.atmo_fields[f] = self.de_domain.new_ncc()
 
     def _set_subs(self):
-        pass
+        self.de_problem.problem.substitutions['P0']   = '(rho0*T0)'
+        self.de_problem.problem.substitutions['s0']   = '((1/Cv)*log(T0) - ln_rho0)'
+
+        self.de_problem.problem.substitutions['ln_rho_full'] = '(ln_rho0 + ln_rho1)'
+        self.de_problem.problem.substitutions['rho_full']    = '(rho0*exp(ln_rho1))'
+        self.de_problem.problem.substitutions['T_full']      = '(T0 + T1)'
+        self.de_problem.problem.substitutions['P_full']      = '(rho_full*T_full)'
+        self.de_problem.problem.substitutions['s_full']      = '((1/Cv)*log(T_full) - ln_rho_full)'
+       
+        self.de_problem.problem.substitutions['rho_fluc']    = '(rho_full - rho0)'
+        self.de_problem.problem.substitutions['P_fluc']      = '(P_full - P0)'
+        self.de_problem.problem.substitutions['s_fluc']      = '(s_full - s0)'
 
     def set_domain(self, de_domain):
         self.de_domain = de_domain
@@ -125,7 +138,7 @@ class Polytrope(IdealGasAtmosphere):
             T0 = (Lz + 1 - z)
             rho0 = T0**m 
         '''
-        T0 = (self.params['Lz'] + 1 - self.domain.z)
+        T0 = (self.params['Lz'] + 1 - self.de_domain.z)
         rho0 = T0**self.params['m']
         ln_rho0 = np.log(rho0)
 
@@ -140,7 +153,7 @@ class Polytrope(IdealGasAtmosphere):
         super(Polytrope, self)._set_parameters()
         self._set_atmo_structure()
 
-        self.params['mu0']    = nu_top  = np.sqrt(Prandtl*(self.params['g']*self.params['Lz']**3*np.abs(self.params['delta_s']/self.params['Cp']/Rayleigh)
+        self.params['mu0']    = nu_top  = np.sqrt(Prandtl*(self.params['g']*self.params['Lz']**3*np.abs(self.params['delta_s']/self.params['Cp']/Rayleigh)))
         self.params['kappa0'] = chi_top = nu_top / Prandtl
         self.params['t_therm_top'] = self.params['Lz']**2/chi_top
         self.params['t_therm_bot'] = self.params['Lz']**2/(chi_top*np.exp(2*self.params['n_rho']))
@@ -158,6 +171,15 @@ class Polytrope(IdealGasAtmosphere):
         """
         Sets up substitutions that are useful for the Boussinesq equations or for outputs
         """
+        super(Polytrope, self)._set_subs()
+
+        #Diffusivities; diffusive timescale
+        self.de_problem.problem.substitutions['chi0'] = '(kappa0/rho0)'
+        self.de_problem.problem.substitutions['nu0']  = '(mu0/rho0)'
+        self.de_problem.problem.substitutions['phi']  = '(-g*(1 + Lz - z))'
+
+
+    def set_output_subs(self):
         if self.de_domain.dimensions == 1:
             self.de_problem.problem.substitutions['plane_avg(A)'] = 'A'
             self.de_problem.problem.substitutions['plane_std(A)'] = '0'
@@ -166,34 +188,11 @@ class Polytrope(IdealGasAtmosphere):
             self.de_problem.problem.substitutions['plane_avg(A)'] = 'integ(A, "x")/Lx'
             self.de_problem.problem.substitutions['plane_std(A)'] = 'sqrt(plane_avg((A - plane_avg(A))**2))'
             self.de_problem.problem.substitutions['vol_avg(A)']   = 'integ(A)/Lx/Lz'
-
-            self.de_problem.problem.substitutions['v']         = '0'
-            self.de_problem.problem.substitutions['dy(A)']     = '0'
         else:
             self.de_problem.problem.substitutions['plane_avg(A)'] = 'integ(A, "x", "y")/Lx/Ly'
             self.de_problem.problem.substitutions['plane_std(A)'] = 'sqrt(plane_avg((A - plane_avg(A))**2))'
             self.de_problem.problem.substitutions['vol_avg(A)']   = 'integ(A)/Lx/Ly/Lz'
 
-        #Diffusivities; diffusive timescale
-        self.de_problem.problem.substitutions['chi0'] = '(kappa0/rho0)'
-        self.de_problem.problem.substitutions['nu0']  = '(nu0/rho0)'
-        self.de_problem.problem.substitutions['phi']  = '(-g*(1 + Lz - z))'
-        self.de_problem.problem.substitutions['P0']   = '(rho0*T0)'
-        self.de_problem.problem.substitutions['s0']   = '((1/Cv)*log(T0) - ln_rho0)'
-
-        self.de_problem.problem.substitutions['ln_rho_full'] = '(ln_rho0 + ln_rho1)'
-        self.de_problem.problem.substitutions['rho_full']    = '(rho0*exp(ln_rho1))'
-        self.de_problem.problem.substitutions['T_full']      = '(T0 + T1)'
-        self.de_problem.problem.substitutions['P_full']      = '(rho_full*T_full)'
-        self.de_problem.problem.substitutions['s_full']      = '((1/Cv)*log(T_full) - ln_rho_full)'
-       
-        self.de_problem.problem.substitutions['rho_fluc']    = '(rho_full - rho0)'
-        self.de_problem.problem.substitutions['P_fluc']      = '(P_full - P0)'
-        self.de_problem.problem.substitutions['s_fluc']      = '(s_full - s0)'
-
-
-    def set_output_subs(self)
-        self.de_problem.problem.substitutions['vel_rms']   = 'sqrt(u**2 + v**2 + w**2)'
         self.de_problem.problem.substitutions['KE']        = '(0.5*rho_full*vel_rms**2)'
         self.de_problem.problem.substitutions['PE']        = '(rho_full*phi)'
         self.de_problem.problem.substitutions['IE']        = '(rho_full*Cv*T_full)'
@@ -206,8 +205,8 @@ class Polytrope(IdealGasAtmosphere):
         self.de_problem.problem.substitutions['u_rms']      = 'sqrt(u**2)'
         self.de_problem.problem.substitutions['v_rms']      = 'sqrt(v**2)'
         self.de_problem.problem.substitutions['w_rms']      = 'sqrt(w**2)'
-        self.de_problem.problem.substitutions['Re_rms']     = '(vel_rms / visc_nu)'
-        self.de_problem.problem.substitutions['Pe_rms']     = '(vel_rms / chi)'
+        self.de_problem.problem.substitutions['Re_rms']     = '(vel_rms / nu_full)'
+        self.de_problem.problem.substitutions['Pe_rms']     = '(vel_rms / chi_full)'
         self.de_problem.problem.substitutions['Ma_iso_rms'] = '(vel_rms/sqrt(T_full))'
         self.de_problem.problem.substitutions['Ma_ad_rms']  = '(vel_rms/sqrt(gamma*T_full))'
 
@@ -222,7 +221,7 @@ class Polytrope(IdealGasAtmosphere):
         self.de_problem.problem.substitutions['F_cond0_z']     = '(-kappa0*T0_z)'
         self.de_problem.problem.substitutions['F_cond_ad_z']   = '(-kappa_full*T_ad_z)'
 
-        self.de_problem.problem.substitutions['Nu'] = '((F_conv + F_cond_z - F_cond_ad_z)/vol_avg(F_cond_z - F_cond_ad_z)'
+        self.de_problem.problem.substitutions['Nu'] = '((F_conv_z + F_cond_z - F_cond_ad_z)/vol_avg(F_cond_z - F_cond_ad_z))'
 
 
 

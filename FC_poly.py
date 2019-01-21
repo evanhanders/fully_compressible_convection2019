@@ -44,7 +44,8 @@ Options:
     --root_dir=<dir>           Root directory for output [default: ./]
 
 """
-def boussinesq_convection(Rayleigh=1e6, Prandtl=1, threeD=False, aspect=4, nz=64, nx=None, ny=None,
+def boussinesq_convection(Rayleigh=1e6, Prandtl=1, n_rho=1, epsilon=1e-4, threeD=False, 
+                          aspect=4, nz=64, nx=None, ny=None,
                           fixed_f=False, fixed_t=False, fixed_f_fixed_t = True, fixed_t_fixed_f=False,
                           stress_free=False, no_slip=True, IH=True, z_bot=-1,
                           run_time=23.5, run_time_buoyancy=None, run_time_therm=1,
@@ -107,6 +108,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, threeD=False, aspect=4, nz=64
         Processor distribution mesh for 3D runs.
     """
     import os
+    from collections import OrderedDict
     import logging
     logger = logging.getLogger(__name__)
 
@@ -116,8 +118,8 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, threeD=False, aspect=4, nz=64
 
     from logic.domains       import DedalusDomain
     from logic.problems      import DedalusIVP
-    from logic.equations     import BoussinesqEquations2D, BoussinesqEquations3D
-    from logic.experiments   import BoussinesqConvection
+    from logic.equations     import KappaMuFCE
+    from logic.atmospheres   import Polytrope
     from logic.outputs       import initialize_output
     from logic.functions     import mpi_makedirs
     from logic.checkpointing import Checkpoint
@@ -164,32 +166,46 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, threeD=False, aspect=4, nz=64
         bc_dict['stress_free'] = True
     elif no_slip:
         bc_dict['no_slip'] = True
+
+    atmo_kwargs   = OrderedDict([('epsilon',        epsilon),
+                                 ('n_rho',          n_rho),
+                                 ('aspect_ratio',   aspect),
+                                 ('gamma',          5./3),
+                                 ('R',              1)
+                                ])
+
+
+    domain_kwargs = OrderedDict([('nx',         nx),
+                                 ('ny',         ny),
+                                 ('nz',         nz),
+                                 ('z_bot',      0),
+                                 ('dimensions', dimensions),
+                                 ('mesh',       mesh)
+                                ])
    
     #Set up domain, equations, logic, etc.
-    de_domain = DedalusDomain(nx, ny, nz, Lx, Ly, Lz, z_bot=z_bot, dimensions=dimensions, mesh=mesh)
+    atmosphere = Polytrope(**atmo_kwargs)
+    for k in ['Lx', 'Ly', 'Lz']:  domain_kwargs[k] = atmosphere.params[k]
+    de_domain = DedalusDomain(**domain_kwargs)
     de_problem = DedalusIVP(de_domain)
-    if threeD:
-        logger.info("resolution: [{}x{}x{}]".format(nx, ny, nz))
-        equations = BoussinesqEquations3D(de_domain, de_problem)
-    else:
-        logger.info("resolution: [{}x{}]".format(nx, nz))
-        equations = BoussinesqEquations2D(de_domain, de_problem)
+    equations = KappaMuFCE(de_domain, de_problem)
     de_problem.build_problem()
-    convection = BoussinesqConvection(de_domain, de_problem, Rayleigh=Rayleigh, Prandtl=Prandtl, IH=IH)
-    equations.set_equations()
+    atmosphere.prepare_atmosphere(de_domain, de_problem, Rayleigh, Prandtl)
+#    atmosphere.set_output_subs()
+    equations.set_equations(atmosphere)
     equations.set_BC(**bc_dict)
 
     # Build solver, set stop times
     de_problem.build_solver(ts = de.timesteppers.SBDF2)
 
-    stop_sim_time = run_time_therm*convection.thermal_time
+    stop_sim_time = run_time_therm*atmosphere.params['t_therm_bot']
     if not(run_time_buoyancy is None): stop_sim_time = run_time_buoyancy
     de_problem.set_stop_condition(stop_wall_time=run_time*3600, stop_sim_time=stop_sim_time)
 
     #Setup checkpointing and initial conditions
     checkpoint = Checkpoint(data_dir)
-    convection.T0.set_scales(de_domain.dealias, keep_data=True)
-    noise_scale = convection.T0['g'] * convection.P
+    atmosphere.atmo_fields['T0'].set_scales(de_domain.dealias, keep_data=True)
+    noise_scale = atmosphere.atmo_fields['T0']['g'] * epsilon
     dt, mode =     equations.set_IC(noise_scale, checkpoint, restart=restart, seed=seed, checkpoint_dt=checkpoint_min*60, overwrite=overwrite)
 
 
@@ -210,7 +226,7 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, threeD=False, aspect=4, nz=64
         CFL.add_velocities(('u', 'w'))
    
     # Solve the IVP.
-    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, track_fields=['Pe'], threeD=threeD, Hermitian_cadence=100, no_join=no_join, mode=mode)
+    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=no_join, mode=mode)
 
 ######################################################################
 if __name__ == "__main__":
@@ -220,37 +236,6 @@ if __name__ == "__main__":
 
     from docopt import docopt
     args = docopt(__doc__)
-
-    # save data in directory named after script
-    data_dir = args['--root_dir'] + '/' + sys.argv[0].split('.py')[0]
-    if args['--3D']:
-        data_dir += '_3D'
-    else:
-        data_dir += '_2D'
-    if args['--BC_driven']:
-        data_dir += '_BCdriven'
-    data_dir += '_zb{:.2g}'.format(float(args['--z_bot']))
-    if fixed_f:
-        data_dir += '_fixedF'
-    elif fixed_f_fixed_t:
-        data_dir += '_fixedF_fixedT'
-    elif fixed_t_fixed_f:
-        data_dir += '_fixedT_fixedF'
-    else:
-        data_dir += '_fixedT'
-
-    if no_slip:
-        data_dir += '_noSlip'
-    else:
-        data_dir += '_stressFree'
-
-
-    data_dir += "_Ra{}_Pr{}_a{}".format(args['--Rayleigh'], args['--Prandtl'], args['--aspect'])
-    if args['--label'] is not None:
-        data_dir += "_{}".format(args['--label'])
-    data_dir += '/'
-    logger.info("saving run in: {}".format(data_dir))
-
 
     #Read in command line arguments, process them, then run convection
     #BCs
@@ -291,7 +276,40 @@ if __name__ == "__main__":
     if mesh is not None:
         mesh = mesh.split(',')
         mesh = [int(mesh[0]), int(mesh[1])]
-        
+ 
+
+    # save data in directory named after script
+    data_dir = args['--root_dir'] + '/' + sys.argv[0].split('.py')[0]
+    if args['--3D']:
+        data_dir += '_3D'
+    else:
+        data_dir += '_2D'
+    if args['--BC_driven']:
+        data_dir += '_BCdriven'
+    data_dir += '_zb{:.2g}'.format(float(args['--z_bot']))
+    if fixed_f:
+        data_dir += '_fixedF'
+    elif fixed_f_fixed_t:
+        data_dir += '_fixedF_fixedT'
+    elif fixed_t_fixed_f:
+        data_dir += '_fixedT_fixedF'
+    else:
+        data_dir += '_fixedT'
+
+    if no_slip:
+        data_dir += '_noSlip'
+    else:
+        data_dir += '_stressFree'
+
+
+    data_dir += "_Ra{}_Pr{}_a{}".format(args['--Rayleigh'], args['--Prandtl'], args['--aspect'])
+    if args['--label'] is not None:
+        data_dir += "_{}".format(args['--label'])
+    data_dir += '/'
+    logger.info("saving run in: {}".format(data_dir))
+
+
+       
     boussinesq_convection(Rayleigh            = float(args['--Rayleigh']),
                           Prandtl             = float(args['--Prandtl']),
                           nz                  = int(args['--nz']),

@@ -37,16 +37,52 @@ class Equations():
         self.de_domain  = de_domain
         self.de_problem = de_problem
         return
-    
 
-class BoussinesqEquations(Equations):
+
+class FullyCompressibleEquations(Equations):
     """
-    An extension of the Equations class which contains the full 2D form of the boussinesq
-    equations.   
+    An abstract class containing the fully compressible equations which must
+    be extended to specify the type of diffusivities
     """
-    def __init__(self, *args, **kwargs):
-        super(BoussinesqEquations, self).__init__(*args, **kwargs)
-       
+    def __init__(self, *args):
+        super(FullyCompressibleEquations, self).__init__(*args)
+
+        variables = ['u','u_z','v', 'v_z', 'w','w_z','T1', 'T1_z', 'ln_rho1']
+        if not self.de_domain.dimensions == 3:
+            variables.remove('v')
+            variables.remove('v_z')
+        self.de_problem.set_variables(variables)
+
+    def _set_subs(self, kx = 0):
+        if self.de_domain.dimensions == 1:
+            self.de_problem.problem.parameters['j'] = 1j
+            self.de_problem.problem.substitutions['dx(f)'] = "j*kx*(f)"
+            self.de_problem.problem.parameters['kx'] = kx
+        if not self.de_domain.dimensions == 3:
+            self.de_problem.problem.substitutions['v'] = '0'
+            self.de_problem.problem.substitutions['v_z'] = '0'
+            self.de_problem.problem.substitutions['dy(A)'] = '0*A'
+
+        self.de_problem.problem.substitutions['vel_rms']  = 'sqrt(u**2 + v**2 + w**2)'
+
+        self.de_problem.problem.substitutions['Lap(f, f_z)'] = "(dx(dx(f)) + dy(dy(f)) + dz(f_z))"
+        self.de_problem.problem.substitutions['Div(fx, fy, fz_z)'] = "(dx(fx) + dy(fy) + fz_z)"
+        self.de_problem.problem.substitutions['Div_u'] = "Div(u, v, w_z)"
+        self.de_problem.problem.substitutions['UdotGrad(f, f_z)'] = "(u*dx(f) + v*dy(f) + w*(f_z))"
+
+        self.de_problem.problem.substitutions["Sig_xx"] = "(2*dx(u) - 2/3*Div_u)"
+        self.de_problem.problem.substitutions["Sig_yy"] = "(2*dy(v) - 2/3*Div_u)"
+        self.de_problem.problem.substitutions["Sig_zz"] = "(2*w_z   - 2/3*Div_u)"
+        self.de_problem.problem.substitutions["Sig_xy"] = "(dx(v) + dy(u))"
+        self.de_problem.problem.substitutions["Sig_xz"] = "(dx(w) +  u_z )"
+        self.de_problem.problem.substitutions["Sig_yz"] = "(dy(w) +  v_z )"
+
+        self.de_problem.problem.substitutions['Vort_x'] = '(dy(w) - v_z)'
+        self.de_problem.problem.substitutions['Vort_y'] = '( u_z  - dx(w))'
+        self.de_problem.problem.substitutions['Vort_z'] = '(dx(v) - dy(u))'
+        self.de_problem.problem.substitutions['enstrophy']   = '(Vort_x**2 + Vort_y**2 + Vort_z**2)'
+
+
     def set_BC(self,
                fixed_f=None, fixed_t=None, fixed_f_fixed_t=None, fixed_t_fixed_f=None,
                stress_free=None, no_slip=None):
@@ -97,8 +133,8 @@ class BoussinesqEquations(Equations):
 
         if fixed_f:
             logger.info("Thermal BC: fixed flux (full form)")
-            self.de_problem.problem.add_bc( "left(T1_z) = 0")
-            self.de_problem.problem.add_bc("right(T1_z) = 0")
+            self.de_problem.problem.add_bc("fixed_flux_L_LHS = fixed_L_flux_RHS")
+            self.de_problem.problem.add_bc("fixed_flux_R_LHS = fixed_R_flux_RHS")
             self.dirichlet_set.append('T1_z')
         elif fixed_t:
             logger.info("Thermal BC: fixed temperature (T1)")
@@ -107,15 +143,14 @@ class BoussinesqEquations(Equations):
             self.dirichlet_set.append('T1')
         elif fixed_f_fixed_t:
             logger.info("Thermal BC: fixed flux/fixed temperature")
-            self.de_problem.problem.add_bc("left(T1_z) = 0")
+            self.de_problem.problem.add_bc("fixed_flux_L_LHS = fixed_flux_L_RHS")
             self.de_problem.problem.add_bc("right(T1)  = 0")
             self.dirichlet_set.append('T1_z')
             self.dirichlet_set.append('T1')
         elif fixed_t_fixed_f:
             logger.info("Thermal BC: fixed temperature/fixed flux")
-            logger.info("warning; these are not fully correct fixed flux conditions yet")
             self.de_problem.problem.add_bc("left(T1)    = 0")
-            self.de_problem.problem.add_bc("right(T1_z) = 0")
+            self.de_problem.problem.add_bc("fixed_flux_R_LHS = fixed_flux_R_RHS")
             self.dirichlet_set.append('T1_z')
             self.dirichlet_set.append('T1')
         else:
@@ -130,7 +165,7 @@ class BoussinesqEquations(Equations):
         Parameters
         ----------
         stress_free     : bool, optional
-            If flagged, Horizontal vorticity is zero at the top and bottom
+            If flagged, dz(horizontal velocity) is zero at the top and bottom
         no_slip         : bool, optional
             If flagged, velocity is zero at the top and bottom [DEFAULT]
         """
@@ -141,13 +176,13 @@ class BoussinesqEquations(Equations):
         # horizontal velocity boundary conditions
         if stress_free:
             logger.info("Horizontal velocity BC: stress free")
-            self.de_problem.problem.add_bc("left(Oy) = 0")
-            self.de_problem.problem.add_bc("right(Oy) = 0")
-            self.dirichlet_set.append('Oy')
+            self.de_problem.problem.add_bc("left(u_z) = 0")
+            self.de_problem.problem.add_bc("right(u_z) = 0")
+            self.dirichlet_set.append('u_z')
             if self.de_domain.dimensions == 3:
-                self.de_problem.problem.add_bc("left(Ox) = 0")
-                self.de_problem.problem.add_bc("right(Ox) = 0")
-                self.dirichlet_set.append('Ox')
+                self.de_problem.problem.add_bc("left(v_z) = 0")
+                self.de_problem.problem.add_bc("right(v_z) = 0")
+                self.dirichlet_set.append('v_z')
         elif no_slip:
             logger.info("Horizontal velocity BC: no slip")
             self.de_problem.problem.add_bc( "left(u) = 0")
@@ -164,14 +199,7 @@ class BoussinesqEquations(Equations):
         # vertical velocity boundary conditions
         logger.info("Vertical velocity BC: impenetrable")
         self.de_problem.problem.add_bc( "left(w) = 0")
-        if self.de_domain.dimensions == 2:
-            self.de_problem.problem.add_bc("right(p) = 0", condition="(nx == 0)")
-            self.de_problem.problem.add_bc("right(w) = 0", condition="(nx != 0)")
-        elif self.de_domain.dimensions == 3:
-            self.de_problem.problem.add_bc("right(p) = 0", condition="(nx == 0) and (ny == 0)")
-            self.de_problem.problem.add_bc("right(w) = 0", condition="(nx != 0) or  (ny != 0)")
-        else:
-            self.de_problem.problem.add_bc("right(w) = 0")
+        self.de_problem.problem.add_bc("right(w) = 0")
         self.dirichlet_set.append('w')
 
     def set_IC(self, noise_scale, checkpoint, A0=1e-6, restart=None, checkpoint_dt=1800, overwrite=True, **kwargs):
@@ -220,154 +248,114 @@ class BoussinesqEquations(Equations):
         checkpoint.set_checkpoint(self.de_problem.solver, wall_dt=checkpoint_dt, mode=mode)
         return dt, mode
  
-       
 
-class BoussinesqEquations2D(BoussinesqEquations):
-    """ 
-    Two-dimensional, incompressible Boussinesq equations in the form:
 
-        ∇ · u = 0
-        d_t u - u ⨯ ω = - ∇ p + T1 (zhat) - √(Pr/Ra) * ∇ ⨯ ω
-        d_t T1 + u · ∇ (T0 + T1) = 1/(√[Pr Ra]) * ∇ ² T1
-
-    See Anders, Brown, & Oishi (2018, PRFluids) for some info on where
-    this form comes from compared to a more-traditional writing of the eqns.
-    """
-    def __init__(self, *args, **kwargs):
-        """ 
-        Initialize class and set up variables that will be used in eqns:
-            T1   - Temperature fluctuations from initial state
-            T1_z - z-derivative of T1
-            p    - Pressure, magic
-            u    - Horizontal velocity
-            w    - Vertical velocity
-            Oy   - y-vorticity (out of plane)
-        """
-        super(BoussinesqEquations2D, self).__init__(*args, **kwargs)
-        self.de_problem.set_variables(['T1_z','T1','p','u','w','Oy'])
-
-    def _set_subs(self, kx = 0):
-        """ Set some important substitutions for the equations
+    def set_equations(self, atmosphere, *args, kx = 0, **kwargs):
+        ''' 
+        Sets the fully compressible equations of in a ln_rho / T formulation. These
+        equations take the form:
         
-        Parameters
-        ----------
-        kx  : float
-            The horizontal wavenumber to use, if using a 1D atmosphere
-        """
-        if self.de_domain.dimensions == 1:
-            self.de_problem.problem.parameters['j'] = 1j
-            self.de_problem.problem.substitutions['dx(f)'] = "j*kx*(f)"
-            self.de_problem.problem.parameters['kx'] = kx
-
-        self.de_problem.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + w * A_z)'
-        self.de_problem.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dz(A_z))'
-       
-        self.de_problem.problem.substitutions['v'] = '0'
-        self.de_problem.problem.substitutions['dy(A)'] = '0'
-
-        self.de_problem.problem.substitutions['Ox'] = '(dy(w) - dz(v))'
-        self.de_problem.problem.substitutions['Oz'] = '(dx(v) - dy(u))'
-
-    def set_equations(self, kx = 0):
-        """ Setup the equations in Dedalus
+        D ln ρ + ∇ · u = 0
+        D u = - ∇ T - T∇ ln ρ - gẑ + (1/ρ) * ∇ · Π
+        D T + (γ - 1)T∇ · u - (1/[ρ Cv]) ∇ · (- Kap∇ T) = (1/[ρ Cv])(Π ·∇ )·u 
         
-        Parameters
-        ----------
-        kx  : float
-            The horizontal wavenumber to use, if using a 1D atmosphere
-        """
+        Where
 
-        self._set_subs(kx=kx)
+        D = ∂/∂t + (u · ∇ ) 
 
-        logger.debug('Adding Eqn: Incompressibility constraint')
-        self.de_problem.problem.add_equation("dx(u) + dz(w) = 0")
-        logger.debug('Adding Eqn: T1_z defn')
-        self.de_problem.problem.add_equation("T1_z - dz(T1) = 0")
-        logger.debug('Adding Eqn: Vorticity defn')
-        self.de_problem.problem.add_equation("Oy - dz(u) + dx(w) = 0")
-        logger.debug('Adding Eqn: Momentum, x')
-        self.de_problem.problem.add_equation("dt(u)  - R*dz(Oy)  + dx(p)              =  v*Oz - w*Oy ")
-        logger.debug('Adding Eqn: Momentum, z')
-        self.de_problem.problem.add_equation("dt(w)  + R*dx(Oy)  + dz(p)    - T1      =  u*Oy - v*Ox ")
-        logger.debug('Adding Eqn: Energy')
-        self.de_problem.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z   = -UdotGrad(T1, T1_z)")
+        and
 
-class BoussinesqEquations3D(BoussinesqEquations):
-    """ 
-    Three-dimensional, incompressible Boussinesq equations in the form:
+        Π = - Mu (∂u_i/∂x_j + ∂u_j/∂x_i - (2/3)D_{ij}∇ · u)
 
-        ∇ · u = 0
-        d_t u - u ⨯ ω = - ∇ p + T1 (zhat) - √(Pr/Ra) * ∇ ⨯ ω
-        d_t T1 + u · ∇ (T0 + T1) = 1/(√[Pr Ra]) * ∇ ² T1
+        is the viscous stress tensor. The variables are u (vector velocity), T (temp) and 
+        ρ (density). Temperature, density, and pressure are related through an ideal gas
+        equation of state,
 
-    See Anders, Brown, & Oishi (2018, PRFluids) for some info on where
-    this form comes from compared to a more-traditional writing of the eqns.
-    """
+        P = ρT
+
+        Which has already been assumed in the formulation of these equations.
+        '''
+        self._set_subs(kx = kx)
+        self._setup_diffusivities(atmosphere, *args, **kwargs)
+        atmosphere.set_output_subs()
+
+        self.de_problem.problem.add_equation(    "dz(u) - u_z = 0")
+        if self.de_domain.dimensions == 3:
+            self.de_problem.problem.add_equation("dz(v) - v_z = 0")
+        self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
+        self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
+        self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u ) = (scale_c)*(-UdotGrad(ln_rho1, dz(ln_rho1)))"))
+        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) + T1*ln_rho0_z - L_visc_w) = "
+                                       "(scale_m_z)*(- UdotGrad(w, w_z) - T1*dz(ln_rho1) + R_visc_w)"))
+        self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u) = "
+                                       "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u)"))
+        if self.de_domain.dimensions == 3:
+            self.de_problem.problem.add_equation(("(scale_m)*( dt(v) + dy(T1)   + T0*dy(ln_rho1)                  - L_visc_v) = "
+                                       "(scale_m)*(-UdotGrad(v, v_z) - T1*dy(ln_rho1) + R_visc_v)"))
+        self.de_problem.problem.add_equation((    "(scale_e)*( dt(T1)   + w*T0_z  + (gamma-1)*T0*Div_u -  L_thermal) = "
+                                       "(scale_e)*(-UdotGrad(T1, T1_z) - (gamma-1)*T1*Div_u + R_thermal + R_visc_heat + source_terms)"))
+
+
+    def _set_diffusion_subs(self):
+        pass
+
+
+class KappaMuFCE(FullyCompressibleEquations):
+    '''
+    An extension of the fully compressible equations where the diffusivities are
+    set based on kappa and mu, not chi and nu.
+    '''
 
     def __init__(self, *args, **kwargs):
-        """ 
-        Initialize class and set up variables that will be used in eqns:
-            T1   - Temperature fluctuations from static state
-            T1_z - z-derivative of T1
-            p    - Pressure, magic
-            u    - Horizontal velocity (x)
-            v    - Horizontal velocity (y)
-            w    - Vertical velocity
-            Ox   - x-vorticity
-            Oy   - y-vorticity
-            Oz   - z-vorticity
-        """
-        super(BoussinesqEquations3D, self).__init__(*args, **kwargs)
-        self.de_problem.set_variables(['T1','T1_z','p','u','v', 'w','Ox', 'Oy', 'Oz'])
+        super(KappaMuFCE, self).__init__(*args, **kwargs)
 
-    def _set_subs(self, kx = 0, ky = 0):
-        """ Set some important substitutions for the equations
-        
-        Parameters
-        ----------
-        kx  : float
-            The x-wavenumber to use, if using a 1D atmosphere
-        ky  : float
-            The y-wavenumber to use, if using a 1D atmosphere
-        """
-        if self.dimensions == 1:
-            self.de_problem.problem.parameters['j'] = 1j
-            self.de_problem.problem.substitutions['dx(f)'] = "j*kx*(f)"
-            self.de_problem.problem.parameters['kx'] = kx
-            self.de_problem.problem.substitutions['dy(f)'] = "j*ky*(f)"
-            self.de_problem.problem.parameters['ky'] = ky
- 
-        self.de_problem.problem.substitutions['UdotGrad(A, A_z)'] = '(u * dx(A) + v * dy(A) + w * A_z)'
-        self.de_problem.problem.substitutions['Lap(A, A_z)'] = '(dx(dx(A)) + dy(dy(A)) + dz(A_z))'
+    def _setup_diffusivities(self, atmosphere, max_ncc=2):
+        self.de_problem.problem.substitutions['kappa_full']   = '(kappa0)'
+        self.de_problem.problem.substitutions['kappa_full_z'] = '(0)'
+        self.de_problem.problem.substitutions['kappa_fluc']   = '(0)'
+        self.de_problem.problem.substitutions['chi_full']     = '(kappa_full/rho_full)'
+        self.de_problem.problem.substitutions['chi_fluc']     = '(chi_full - chi0)'
+        self.de_problem.problem.substitutions['mu_full']      = '(mu0)'
+        self.de_problem.problem.substitutions['mu_full_z']    = '(0)'
+        self.de_problem.problem.substitutions['mu_fluc']      = '(0)'
+        self.de_problem.problem.substitutions['nu_full']      = '(mu_full/rho_full)'
+        self.de_problem.problem.substitutions['nu_fluc']      = '(nu_full - nu0)'
 
-    def set_equations(self, kx = 0, ky = 0):
-        """ Setup the equations in Dedalus
-        
-        Parameters
-        ----------
-        kx  : float
-            The x-wavenumber to use, if using a 1D atmosphere
-        ky  : float
-            The y-wavenumber to use, if using a 1D atmosphere
-        """
-        self._set_subs(kx=kx, ky=ky)
+        rho_profile = self.de_domain.generate_vertical_profile(atmosphere.atmo_fields['rho0'])
+        z_profile = self.de_domain.generate_vertical_profile(self.de_domain.z)
+        fit = np.polyfit(z_profile, rho_profile, max_ncc)
+        fit_str = ''
+        for i, f in enumerate(fit):
+            fit_str += '(({:.8f})*z**{}) + '.format(f, max_ncc-i-1)
+        fit_str = '({:s})'.format(fit_str[:-2])
+        self.de_problem.problem.substitutions['rho0_fit']   = fit_str
 
-        logger.debug('Adding Eqn: Incompressibility constraint')
-        self.de_problem.problem.add_equation("dx(u) + dy(v) + dz(w) = 0")
-        logger.debug('Adding Eqn: Energy')
-        self.de_problem.problem.add_equation("dt(T1) - P*Lap(T1, T1_z) + w*T0_z           = -UdotGrad(T1, T1_z)")
-        logger.debug('Adding Eqn: Momentum, x')
-        self.de_problem.problem.add_equation("dt(u)  + R*(dy(Oz) - dz(Oy))  + dx(p)       =  v*Oz - w*Oy ")
-        logger.debug('Adding Eqn: Momentum, y')
-        self.de_problem.problem.add_equation("dt(v)  + R*(dz(Ox) - dx(Oz))  + dy(p)       =  w*Ox - u*Oz ")
-        logger.debug('Adding Eqn: Momentum, z')
-        self.de_problem.problem.add_equation("dt(w)  + R*(dx(Oy) - dy(Ox))  + dz(p) - T1  =  u*Oy - v*Ox ")
-        logger.debug('Adding Eqn: T1_z defn')
-        self.de_problem.problem.add_equation("T1_z - dz(T1) = 0")
-        logger.debug('Adding Eqn: X Vorticity defn')
-        self.de_problem.problem.add_equation("Ox - dy(w) + dz(v) = 0")
-        logger.debug('Adding Eqn: Y Vorticity defn')
-        self.de_problem.problem.add_equation("Oy - dz(u) + dx(w) = 0")
-        logger.debug('Adding Eqn: Z Vorticity defn')
-        self.de_problem.problem.add_equation("Oz - dx(v) + dy(u) = 0")
+        self.de_problem.problem.substitutions['scale_m_z']  = '(rho0_fit)'
+        self.de_problem.problem.substitutions['scale_m']    = '(rho0_fit)'
+        self.de_problem.problem.substitutions['scale_e']    = '(rho0_fit)'
+        self.de_problem.problem.substitutions['scale_c']    = '(T0)'
 
+
+        #Viscous subs -- momentum equation     
+        self.de_problem.problem.substitutions['visc_u']   = "( (mu_full)*(Lap(u, u_z) + 1/3*Div(dx(u), dx(v), dx(w_z))) + (mu_full_z)*(Sig_xz))"
+        self.de_problem.problem.substitutions['visc_v']   = "( (mu_full)*(Lap(v, v_z) + 1/3*Div(dy(u), dy(v), dy(w_z))) + (mu_full_z)*(Sig_yz))"
+        self.de_problem.problem.substitutions['visc_w']   = "( (mu_full)*(Lap(w, w_z) + 1/3*Div(  u_z, dz(v), dz(w_z))) + (mu_full_z)*(Sig_zz))"                
+        self.de_problem.problem.substitutions['L_visc_u'] = "(visc_u/rho0_fit)"
+        self.de_problem.problem.substitutions['L_visc_v'] = "(visc_v/rho0_fit)"
+        self.de_problem.problem.substitutions['L_visc_w'] = "(visc_w/rho0_fit)"                
+        self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - (L_visc_u))"
+        self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - (L_visc_v))"
+        self.de_problem.problem.substitutions['R_visc_w'] = "(visc_w/rho_full - (L_visc_w))"
+
+        self.de_problem.problem.substitutions['thermal'] = ('( ((1/Cv))*(kappa_full*Lap(T1, T1_z) + kappa_full_z*T1_z) )')
+        self.de_problem.problem.substitutions['L_thermal'] = ('thermal/rho0_fit')
+        self.de_problem.problem.substitutions['R_thermal'] = ('( thermal/rho_full - (L_thermal) + ((1/Cv)/(rho_full))*(kappa_full*T0_zz + kappa_full_z*T0_z) )' )
+        self.de_problem.problem.substitutions['source_terms'] = '0'
+        #Viscous heating
+        self.de_problem.problem.substitutions['R_visc_heat']  = " (mu_full/rho_full*(1/Cv))*(dx(u)*Sig_xx + dy(v)*Sig_yy + w_z*Sig_zz + Sig_xy**2 + Sig_xz**2 + Sig_yz**2)"
+
+        #Fixed-flux BC. LHS = RHS at boundary. L = left (lower). R = right (upper)
+        self.de_problem.problem.substitutions['fixed_flux_L_LHS'] = "left(T1_z)"
+        self.de_problem.problem.substitutions['fixed_flux_L_RHS'] = "(0)"
+        self.de_problem.problem.substitutions['fixed_flux_R_LHS'] = "right(T1_z)"
+        self.de_problem.problem.substitutions['fixed_flux_R_RHS'] = "(0)"

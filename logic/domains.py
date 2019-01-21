@@ -136,7 +136,7 @@ class DedalusDomain:
             for i in range(len(indices)-1):
                 indices[i] = 0
             indices[-1] = range(indices[-1])
-            local_array[gslices[-1]  = field[indices]
+            local_array[gslices[-1]]  = field[indices]
 
         self.domain.dist.comm_cart.Allreduce(local_array, global_array, op=MPI.SUM)
         if not(self.mesh is None):
