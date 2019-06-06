@@ -53,9 +53,10 @@ class DedalusProblem():
     def build_solver(self):
         pass
 
-    def set_variables(self, variables):
+    def set_variables(self, variables, **kwargs):
         """Set the variables, a list of strings, for this dedalus problem."""
         self.variables = variables
+        self.build_problem(**kwargs)
 
 
 class DedalusIVP(DedalusProblem):

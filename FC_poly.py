@@ -1,217 +1,208 @@
 """
-Dedalus script for Boussinesq convection.
+Dedalus script for fully compressible, polytropic convection.
 
 Usage:
-    bouss_convection.py [options] 
+    FC_poly.py [options] 
 
 Options:
-    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e6]
+    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e4]
     --Prandtl=<Prandtl>        Prandtl number = nu/kappa [default: 1]
-    --nz=<nz>                  Vertical resolution [default: 64]
-    --nx=<nx>                  Horizontal resolution; if not set, nx=aspect*nz_cz
-    --ny=<nx>                  Horizontal resolution; if not set, nx=aspect*nz_cz
-    --aspect=<aspect>          Aspect ratio of problem [default: 4]
-
-    --fixed_f                  Fixed flux boundary conditions top/bottom
-    --fixed_t                  Fixed temperature boundary conditions top/bottom
-    --fixed_f_fixed_t          Fixed flux (bot) and fixed temp (top) bcs; default is no choice is made
-    --fixed_t_fixed_f          Fixed temp (bot) and fixed flux (top) bcs
-
-    --stress_free              Stress free boundary conditions top/bottom
-    --no_slip                  no slip boundary conditions top/bottom; default if no choice is made
-
-    --BC_driven                If flagged, study BC driven, not internally heated
-    --z_bot=<z>                If z_bot < 0, there is a stable layer [default: -1]
-
+    --n_rho=<n>                Number of density scale heights of polytrope ICs [default: 3]
+    --epsilon=<epsilon>        Superadiabatic excess of polytropic atmosphere [default: 1e-4]
+    --aspect=<aspect>          Aspect ratio of problem (Lx = Ly = aspect*Lz) [default: 4]
     --3D                       Run in 3D
+
+    --thermal_BC=<bc>          A short string specifying the thermal boundary conditions:
+                                'flux'      : Fixed flux BCs (top & bot)
+                                'temp'      : Fixed temp BCs (top & bot)
+                                'flux_temp' : Fixed flux (bot) and temp (top)
+                                'temp_flux' : Fixed temp (bot) and flux (top)
+                                [default: flux_temp]
+    
+    --velocity_BC=<bc>         A short string specifying the horizontal velocity boundary conditions:
+                                'stress_free' : dz(horizontal velocity) = 0 (top & bot)
+                                'no_slip'     : (horizontal velocity) = 0 (top & bot)
+                                [default: stress_free]
+
+    --nz=<nz>                  Vertical coeff resolution   [default: 64]
+    --nx=<nx>                  Horizontal coeff resolution [default: 256]
+    --ny=<nx>                  Horizontal coeff resolution [default: 256]
     --mesh=<mesh>              Processor mesh if distributing 3D run in 2D 
     
-    --restart=<restart_file>   Restart from checkpoint
+    --restart=<restart_file>   The path to a checkpoint file to restart from (optional)
     --seed=<seed>              RNG seed for initial conditoins [default: 42]
 
-    --run_time=<t>             Run time, in hours [default: 23.5]
-    --run_time_buoy=<t>        Run time, in buoyancy times
-    --run_time_therm=<t>       Run time, in thermal times [default: 1]
+    --run_time_wall=<t>        Run time, in wall hours [default: 23.5]
+    --run_time_buoy=<t>        Run time, in simulation buoyancy times
+    --run_time_therm=<t>       Run time, in simulation thermal times [default: 1]
 
-    --output_dt=<num>          Simulation time between outputs [default: 0.2]
-    --overwrite                If flagged, force file mode to overwrite
-    --coeffs                   If flagged, output coeffs   
-    --volumes                  If flagged, output volumes   
-    --checkpoint_min=<dt>      Minutes between checkpoint writes [default: 30]
-
-    --label=<label>            Optional additional case name label
-    --no_join                  If flagged, don't join files at end of run
     --root_dir=<dir>           Root directory for output [default: ./]
+    --label=<label>            Optional additional case name label
+    --output_dt=<num>          Simulation buoyancy times between outputs [default: 0.2]
+    --checkpoint_buoy=<dt>     Simulation buoyancy times between outputs [default: 10]
+    --no_join                  If flagged, don't join files at end of run
 
 """
-def boussinesq_convection(Rayleigh=1e6, Prandtl=1, n_rho=1, epsilon=1e-4, threeD=False, 
-                          aspect=4, nz=64, nx=None, ny=None,
-                          fixed_f=False, fixed_t=False, fixed_f_fixed_t = True, fixed_t_fixed_f=False,
-                          stress_free=False, no_slip=True, IH=True, z_bot=-1,
-                          run_time=23.5, run_time_buoyancy=None, run_time_therm=1,
-                          restart=None, data_dir='./', output_dt=0.2, checkpoint_min=30, overwrite=False,
-                          coeff_output=False, volume_output=False, no_join=False, seed=42, mesh=None):
+def name_case(input_dict):
     """
-    A driver function for running Boussinesq convection in Dedalus.
+    Creates an informative string of the form:
+
+    FC_poly_Ra{0}_Pr{1}_n{2}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}
+
+    where the numbers here are:
+    {0}     - Rayleigh number
+    {1}     - Prandtl number
+    {2}     - n_rho, number of density scale heights
+    {3}     - epsilon, superadiabatic excess
+    {4}     - aspect ratio
+    {5}     - 2 or 3 (dimensions of the problem)
+    {6}     - Thermal BCs
+    {7}     - Velocity BCs
+    {8}     - Resolution (nz x nx [2D] or nz x nx x ny [3D])
+    {9}     - _ + label, if label is not None
 
     Parameters
     ----------
-    Rayleigh, Prandtl   : floats, optional
-        The Rayleigh and Prandtl numbers of convection, respectively.
-    threeD              : bool, optional
-        If True, 3D convection. Otherwise, 2D.
-    aspect              : float, optional
-        The aspect ratio of the convection (aspect = Lx/Lz = Ly/Lz)
-    nz, nx, ny          : floats, optional
-        The number of z, x, and y coefficients. If not specific, nx = ny = nz*aspect.
-    fixed_f             : bool, optional
-        If True, study fixed-flux BCs (top & bottom)
-    fixed_t             : bool, optional
-        If True, study fixed-temperature BCs (top & bottom)
-    fixed_f_fixed_t     : bool, optional
-        If True, study fixed-flux (bottom) and fixed-temperature (top) BCs.
-    fixed_t_fixed_f     : bool, optional
-        If True, study fixed-temperature (bottom) and fixed-flux (top) BCs.
-    stress_free         : bool, optional
-        If True, study stress free BCs (top & bottom)
-    no_slip             : bool, optional
-        If True, study no-slip BCs (top & bottom)
-    IH                  : bool, optional
-        If True, study internally-heated convection.
-    z_bot               : bool, optional
-        The value of z at the bottom of the domain. If negative, [z_bot, 0) is stable layer for IH convection.
-    run_time            : float, optional
-        Maximum simulation run time (wall time), in hours.
-    run_time_buoyancy   : float, optional
-        Maximum simulation run time (sim time), in buoyancy units.
-    run_time_therm      : float, optional
-        Maximum simulation run time (sim time), in thermal units.
-    restart             : string, optional
-        The path to a checkpoint file to restart the simulation from.
-    data_dir            : string, optional
-        The root path where a simulation output folder will be created.
-    output_dt           : float, optional
-        Simulation time between output file writes (sim time), in buoyancy units.
-    checkpoint_min      : float, optional
-        Number of minutes between checkpoint writes (wall time).
-    overwrite           : bool, optional
-        If True, force Dedalus output into "overwrite" mode. Otherwise, mode is "append" if running from a checkpoint and "overwrite" if running from initial noise.
-    coeff_output        : bool, optional
-        If True, output select coefficient data
-    volume_output       : bool, optional
-        If True, output 3D volume data, if this is a 3D run.
-    no_join             : bool, optional
-        If True, do not merge output files at the end of the simulation run.
-    seed                : int, optional
-        Random number seed for determining initial conditions if not starting from a checkpoint.
-    mesh                : List of ints, optional
-        Processor distribution mesh for 3D runs.
+    input_dict   : dict
+        A dictionary of strings whose keys are all of the options specified above in the FC_poly.py docstring
+
+    """
+    import sys
+    # save data in directory named after script
+    case_name = sys.argv[0].split('.py')[0]
+    case_name += "_Ra{}_Pr{}_n{}_eps{}_a{}".format( input_dict['--Rayleigh'], 
+                                                    input_dict['--Prandtl'], 
+                                                    input_dict['--n_rho'],
+                                                    input_dict['--epsilon'],
+                                                    input_dict['--aspect'] )
+    if input_dict['--3D']:
+        case_name += '_3D'
+    else:
+        case_name += '_2D'
+    case_name += '_T{}_V{}'.format( input_dict['--thermal_BC'], input_dict['--velocity_BC'] )
+    if input_dict['--3D']:
+        case_name += '_{}x{}x{}'.format( input_dict['--nz'], input_dict['--nx'], input_dict['--ny'] )
+    else:
+        case_name += '_{}x{}'.format( input_dict['--nz'], input_dict['--nx'] )
+    if input_dict['--label'] is not None:
+        case_name += "_{}".format(input_dict['--label'])
+    data_dir = '{:s}/{:s}/'.format(input_dict['--root_dir'], case_name)
+    return data_dir, case_name
+
+def FC_polytropic_convection(input_dict):
+    """
+    A driver function for running FC convection in Dedalus.
+
+    Parameters
+    ----------
+    input_dict   : dict
+        A dictionary of strings whose keys are all of the options specified above in the FC_poly.py docstring
     """
     import os
     from collections import OrderedDict
-    import logging
-    logger = logging.getLogger(__name__)
-
-    from dedalus import public as de
-    from dedalus.extras import flow_tools
     from dedalus.tools.config import config
-
-    from logic.domains       import DedalusDomain
-    from logic.problems      import DedalusIVP
-    from logic.equations     import KappaMuFCE
-    from logic.atmospheres   import Polytrope
-    from logic.outputs       import initialize_output
     from logic.functions     import mpi_makedirs
-    from logic.checkpointing import Checkpoint
- 
-   
-    #Set up output directories and logging
+
+    #Get info on data directory, create directories, setup logging
+    # (Note: this order of imports is bad form, but gets logs properly outputting)
+    data_dir, case_name = name_case(input_dict)
     mpi_makedirs(data_dir)
     logdir = os.path.join(data_dir,'logs')
     mpi_makedirs(logdir)
-    config['logging']['filename'] = os.path.join(data_dir,'logs/dedalus_log')
-    config['logging']['file_level'] = 'DEBUG'
+    file_level = config['logging']['file_level'] = 'debug'
+    filename = config['logging']['filename'] = os.path.join(logdir,'dedalus_log')
 
+    from dedalus import public as de
+    from dedalus.extras import flow_tools
+
+    from logic.atmospheres   import Polytrope
+    from logic.domains       import DedalusDomain
+    from logic.experiments   import CompressibleConvection
+    from logic.problems      import DedalusIVP
+    from logic.equations     import KappaMuFCE
+    from logic.outputs       import initialize_output
+    from logic.checkpointing import Checkpoint
+
+    import logging
     logger = logging.getLogger(__name__)
-    logger.info("saving run in: {}".format(data_dir))
-    logger.info("Ra = {}, Pr = {}".format(Rayleigh, Prandtl))
+    logger.info("Running polytrope case: {}".format(case_name))
+    logger.info("Saving run in: {}".format(data_dir))
 
+    # Read in command line args & process them
+    # Atmosphere params
+    Ra, Pr, n_rho, eps, aspect = [float(input_dict[k]) for k in ('--Rayleigh', '--Prandtl', '--n_rho', '--epsilon', '--aspect')]
+    threeD = input_dict['--3D']
 
-    # Clean input parameters
-    Lz = 1.
-    Lx = aspect*Lz
-    Ly = aspect*Lz
-    if nx is None:  nx = int(nz*aspect)
-    if ny is None:  ny = int(nz*aspect)
-    if threeD:      dimensions = 3
-    else:           dimensions = 2
+    # BCs
+    thermal_BC = OrderedDict(( ('flux',      False),
+                               ('temp',      False),
+                               ('flux_temp', False),
+                               ('temp_flux', False) ))
+    velocity_BC = OrderedDict(( ('stress_free',      False),
+                                ('no_slip',          False) ))
+    thermal_BC[input_dict['--thermal_BC']]   = True
+    velocity_BC[input_dict['--velocity_BC']] = True
 
-    bc_dict = { 'fixed_f'              :   None,
-                'fixed_t'              :   None,
-                'fixed_f_fixed_t'      :   None,
-                'fixed_t_fixed_f'      :   None,
-                'stress_free'          :   None,
-                'no_slip'              :   None }
+    # Coeff resolutions
+    nx, ny, nz = [int(input_dict[n]) for n in ['--nx', '--ny', '--nz']]
 
-    if fixed_f_fixed_t:
-        bc_dict['fixed_f_fixed_t'] = True
-    elif fixed_t_fixed_f:
-        bc_dict['fixed_t_fixed_f'] = True
-    elif fixed_t:
-        bc_dict['fixed_t'] = True
-    elif fixed_f:
-        bc_dict['fixed_f'] = True
-    
-    if stress_free:
-        bc_dict['stress_free'] = True
-    elif no_slip:
-        bc_dict['no_slip'] = True
+    # 3D processor mesh.
+    mesh = input_dict['--mesh']
+    if mesh is not None:
+        mesh = mesh.split(',')
+        mesh = [int(mesh[0]), int(mesh[1])]
 
-    atmo_kwargs   = OrderedDict([('epsilon',        epsilon),
+    # Stop conditions
+    run_time_wall, run_time_buoy, run_time_therm = [input_dict[t] for t in ['--run_time_wall', '--run_time_buoy', '--run_time_therm']]
+    run_time_wall = float(run_time_wall)
+    if run_time_buoy is not None:
+        run_time_buoy = float(run_time_buoy)
+        run_time_therm = None
+        logger.info("Terminating run after {} buoyancy times".format(run_time_buoy))
+    else:
+        run_time_therm = float(run_time_therm)
+        logger.info("Terminating run after {} thermal times".format(run_time_therm))
+
+    # Initialize atmosphere class 
+    atmo_kwargs   = OrderedDict([('epsilon',        eps),
                                  ('n_rho',          n_rho),
-                                 ('aspect_ratio',   aspect),
                                  ('gamma',          5./3),
                                  ('R',              1)
                                 ])
-
-
-    domain_kwargs = OrderedDict([('nx',         nx),
-                                 ('ny',         ny),
-                                 ('nz',         nz),
-                                 ('z_bot',      0),
-                                 ('dimensions', dimensions),
-                                 ('mesh',       mesh)
-                                ])
-   
-    #Set up domain, equations, logic, etc.
     atmosphere = Polytrope(**atmo_kwargs)
-    for k in ['Lx', 'Ly', 'Lz']:  domain_kwargs[k] = atmosphere.params[k]
-    de_domain = DedalusDomain(**domain_kwargs)
+
+    # Initialize domain class
+    resolution = (nz, nx, ny)
+    if not threeD: resolution = resolution[:2]
+    domain_args   = (atmosphere, resolution, aspect)
+    domain_kwargs = OrderedDict( (('mesh',       mesh),) )
+    de_domain = DedalusDomain(*domain_args, **domain_kwargs)
+
+    #Set diffusivities
+    experiment = CompressibleConvection(de_domain, atmosphere, Ra, Pr, const_diffs=False)
+
+    #Set up problem and equations
     de_problem = DedalusIVP(de_domain)
-    equations = KappaMuFCE(de_domain, de_problem)
-    de_problem.build_problem()
-    atmosphere.prepare_atmosphere(de_domain, de_problem, Rayleigh, Prandtl)
-#    atmosphere.set_output_subs()
-    equations.set_equations(atmosphere)
-    equations.set_BC(**bc_dict)
+    equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     # Build solver, set stop times
     de_problem.build_solver(ts = de.timesteppers.SBDF2)
 
-    stop_sim_time = run_time_therm*atmosphere.params['t_therm_bot']
-    if not(run_time_buoyancy is None): stop_sim_time = run_time_buoyancy
-    de_problem.set_stop_condition(stop_wall_time=run_time*3600, stop_sim_time=stop_sim_time)
+    if run_time_buoy is None:
+        stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
+    else:
+        stop_sim_time = run_time_buoy*atmosphere.atmo_params['t_buoy']
+    de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
 
     #Setup checkpointing and initial conditions
     checkpoint = Checkpoint(data_dir)
-    atmosphere.atmo_fields['T0'].set_scales(de_domain.dealias, keep_data=True)
-    noise_scale = atmosphere.atmo_fields['T0']['g'] * epsilon
-    dt, mode =     equations.set_IC(noise_scale, checkpoint, restart=restart, seed=seed, checkpoint_dt=checkpoint_min*60, overwrite=overwrite)
+    dt, mode =     experiment.set_IC(de_problem.solver, eps, checkpoint, restart=args['--restart'], seed=int(args['--seed']), checkpoint_dt=float(args['--checkpoint_buoy'])*atmosphere.atmo_params['t_buoy'])
 
 
     #Set up outputs
-    analysis_tasks = initialize_output(de_domain, de_problem, data_dir, coeff_output=coeff_output, 
-                                       output_dt=output_dt, mode=mode, volumes_output=volume_output)
+    output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
+    analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
+                                       output_dt=output_dt, mode=mode, volumes_output=True)
 
     # Ensure good initial dt and setup CFL
     if dt is None:
@@ -226,116 +217,9 @@ def boussinesq_convection(Rayleigh=1e6, Prandtl=1, n_rho=1, epsilon=1e-4, threeD
         CFL.add_velocities(('u', 'w'))
    
     # Solve the IVP.
-    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=no_join, mode=mode)
+    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
 
-######################################################################
 if __name__ == "__main__":
-    import sys
-    import logging
-    logger = logging.getLogger(__name__)
-
     from docopt import docopt
     args = docopt(__doc__)
-
-    #Read in command line arguments, process them, then run convection
-    #BCs
-    fixed_f = args['--fixed_f']
-    fixed_t = args['--fixed_t']
-    fixed_f_fixed_t = args['--fixed_f_fixed_t']
-    fixed_t_fixed_f = args['--fixed_t_fixed_f']
-    if not ((fixed_f or fixed_t) or fixed_t_fixed_f):
-        fixed_f_fixed_t = True
-
-    stress_free = args['--stress_free']
-    no_slip = args['--no_slip']
-    if not stress_free:
-        no_slip = True
-
-    #Coeff resolutions
-    if args['--nx'] is not None:
-        nx = int(args['--nx'])
-    else:
-        nx = None
-    if args['--ny'] is not None:
-        ny = int(args['--ny'])
-    else:
-        ny = None
-
-    #Stop conditions
-    run_time_buoy = args['--run_time_buoy']
-    if run_time_buoy is not None:
-        run_time_buoy = float(run_time_buoy)
-    run_time_therm = args['--run_time_therm']
-    if run_time_therm is not None:
-        run_time_therm = float(run_time_therm)
-
-    logger.info("stopping after {} t_buoy. If None, stopping after {} t_therm".format(run_time_buoy, run_time_therm))
-
-    #3D processor mesh.
-    mesh = args['--mesh']
-    if mesh is not None:
-        mesh = mesh.split(',')
-        mesh = [int(mesh[0]), int(mesh[1])]
- 
-
-    # save data in directory named after script
-    data_dir = args['--root_dir'] + '/' + sys.argv[0].split('.py')[0]
-    if args['--3D']:
-        data_dir += '_3D'
-    else:
-        data_dir += '_2D'
-    if args['--BC_driven']:
-        data_dir += '_BCdriven'
-    data_dir += '_zb{:.2g}'.format(float(args['--z_bot']))
-    if fixed_f:
-        data_dir += '_fixedF'
-    elif fixed_f_fixed_t:
-        data_dir += '_fixedF_fixedT'
-    elif fixed_t_fixed_f:
-        data_dir += '_fixedT_fixedF'
-    else:
-        data_dir += '_fixedT'
-
-    if no_slip:
-        data_dir += '_noSlip'
-    else:
-        data_dir += '_stressFree'
-
-
-    data_dir += "_Ra{}_Pr{}_a{}".format(args['--Rayleigh'], args['--Prandtl'], args['--aspect'])
-    if args['--label'] is not None:
-        data_dir += "_{}".format(args['--label'])
-    data_dir += '/'
-    logger.info("saving run in: {}".format(data_dir))
-
-
-       
-    boussinesq_convection(Rayleigh            = float(args['--Rayleigh']),
-                          Prandtl             = float(args['--Prandtl']),
-                          nz                  = int(args['--nz']),
-                          nx                  = nx,
-                          ny                  = ny,
-                          aspect              = float(args['--aspect']),
-                          fixed_f             = fixed_f, 
-                          fixed_t             = fixed_t,
-                          fixed_f_fixed_t     = fixed_f_fixed_t,
-                          fixed_t_fixed_f     = fixed_t_fixed_f,
-                          stress_free         = stress_free,
-                          no_slip             = no_slip, 
-                          IH                  = not(args['--BC_driven']),
-                          z_bot               = float(args['--z_bot']),
-                          threeD              = args['--3D'],
-                          mesh                = mesh,
-                          restart             = args['--restart'],
-                          seed                = int(args['--seed']),
-                          run_time            = float(args['--run_time']),
-                          run_time_buoyancy   = run_time_buoy,
-                          run_time_therm      = run_time_therm,
-                          output_dt           = float(args['--output_dt']),
-                          overwrite           = args['--overwrite'],
-                          coeff_output        = args['--coeffs'],
-                          volume_output       = args['--volumes'],
-                          no_join             = args['--no_join'],
-                          data_dir            = data_dir,
-                          checkpoint_min      = float(args['--checkpoint_min'])
-                          )
+    FC_polytropic_convection(args)

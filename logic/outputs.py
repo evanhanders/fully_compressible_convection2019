@@ -131,16 +131,14 @@ def initialize_output(de_domain, de_problem, data_dir,
 #        analysis_coeff.add_task("(u_z - dx(w))", name="vorticity", layout='c')
 #        analysis_tasks['coeff'] = analysis_coeff
 #    
-#    if de_domain.dimensions == 2:
-#        # Analysis
-#        slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
-#        slices.add_task("s_fluc", name='s1')
-#        slices.add_task("(s_fluc - plane_avg(s_fluc))", name='s_fluc')
-#        slices.add_task("enstrophy")
-#        slices.add_task("vel_rms")
-#        slices.add_task("u")
-#        slices.add_task("w")
-#        analysis_tasks['slices'] = slices
+    if de_domain.dimensions == 2:
+        # Analysis
+        slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
+        for field in ['s1', 'enstrophy', 'vel_rms', 'u', 'w', 'T1']:
+            slices.add_task(field)
+        slices.add_task("Vort_y", name='vorticity_y')
+        slices.add_task("(s1 - plane_avg(s1))", name='s_fluc')
+        analysis_tasks['slices'] = slices
 #
 ##        if coeff_output:
 ##            coeffs = de_problem.solver.evaluator.add_file_handler(data_dir+'coeffs', sim_dt=output_dt, max_writes=max_writes, mode=mode)

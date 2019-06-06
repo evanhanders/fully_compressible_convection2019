@@ -49,7 +49,7 @@ def filter_field(field, frac=0.25):
     """
     dom = field.domain
     logger.info("filtering field {} with frac={} using a set-scales approach".format(field.name,frac))
-    orig_scale = field.meta[:]['scale']
+    orig_scale = field.scales
     field.set_scales(frac, keep_data=True)
     field['c']
     field['g']
