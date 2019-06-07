@@ -52,9 +52,8 @@ class CompressibleConvection:
             self.atmosphere.atmo_params['nu0']  = nu_top
             t_therm = Lz**2/chi_top
         else:
-            for k, diff in (('chi0', chi_top), ('nu0', nu_top)):
-                self.atmosphere.atmo_fields[k] = self.de_domain.new_ncc()
-                self.atmosphere.atmo_fields[k]['g'] = diff/self.atmosphere.atmo_fields['rho0']['g']
+            self.atmosphere.atmo_fields['chi0']['g'] = chi_top/self.atmosphere.atmo_fields['rho0']['g']
+            self.atmosphere.atmo_fields['nu0']['g']  =  nu_top/self.atmosphere.atmo_fields['rho0']['g']
             t_therm = Lz**2/np.mean(self.atmosphere.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
             [self.atmosphere.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
         self.atmosphere.atmo_params['t_therm'] = t_therm

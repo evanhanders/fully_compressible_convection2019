@@ -202,7 +202,7 @@ def FC_polytropic_convection(input_dict):
     #Set up outputs
     output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
     analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
-                                       output_dt=output_dt, mode=mode, volumes_output=True)
+                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode, volumes_output=True)
 
     # Ensure good initial dt and setup CFL
     if dt is None:
@@ -217,7 +217,7 @@ def FC_polytropic_convection(input_dict):
         CFL.add_velocities(('u', 'w'))
    
     # Solve the IVP.
-    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
+    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
 
 if __name__ == "__main__":
     from docopt import docopt

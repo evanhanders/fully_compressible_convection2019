@@ -60,7 +60,7 @@ class IdealGasAtmosphere:
         logger.info('   g = {:.2g} and T_ad_z = {:.2g}'.format(self.atmo_params['g'], self.atmo_params['T_ad_z']))
 
     def _make_atmo_fields(self, de_domain, adtl_fds=None):
-        fds = ['T0', 'T0_z', 'T0_zz', 'rho0', 'ln_rho0', 'ln_rho0_z', 'phi']
+        fds = ['T0', 'T0_z', 'T0_zz', 'rho0', 'ln_rho0', 'ln_rho0_z', 'phi', 'chi0', 'nu0']
         if type(adtl_fds) is list:
             fds += adtl_fds
         for f in fds:
@@ -121,6 +121,8 @@ class Polytrope(IdealGasAtmosphere):
 
             T0 = (Lz + 1 - z)
             rho0 = T0**m 
+
+        chi0 and nu0 are set at the experiment level.
         """ 
         self._make_atmo_fields(de_domain)
         T0 = (self.atmo_params['Lz'] + 1 - de_domain.z)
@@ -134,5 +136,3 @@ class Polytrope(IdealGasAtmosphere):
         self.atmo_fields['ln_rho0']['g'] = ln_rho0
         self.atmo_fields['ln_rho0'].differentiate('z', out=self.atmo_fields['ln_rho0_z'])
         self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(T0)
-    
-

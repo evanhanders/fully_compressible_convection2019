@@ -211,7 +211,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['P1']       = '(P - P0)'
         self.de_problem.problem.substitutions['vel_rms']  = 'sqrt(u**2 + v**2 + w**2)'
         self.de_problem.problem.substitutions['s1']       = '(Cv*log(1+T1/T0) - R*ln_rho1)'
-
+        self.de_problem.problem.substitutions['s_full']   = '(Cv*log(T_full) - R*(ln_rho0 + ln_rho1))'
 
     def _set_output_subs(self):
         if self.de_domain.dimensions == 1:
@@ -230,13 +230,16 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['KE']        = '(0.5*rho_full*vel_rms**2)'
         self.de_problem.problem.substitutions['PE']        = '(rho_full*phi)'
         self.de_problem.problem.substitutions['IE']        = '(rho_full*Cv*T_full)'
+        self.de_problem.problem.substitutions['TE']        = '(KE + PE + IE)'
         self.de_problem.problem.substitutions['h']         = '(IE + P)'
         self.de_problem.problem.substitutions['PE_fluc']   = '(rho_fluc*phi)'
         self.de_problem.problem.substitutions['IE_fluc']   = '(rho_full*Cv*T1 + rho_fluc*Cv*T0)'
+        self.de_problem.problem.substitutions['TE_fluc']   = '(KE + PE_fluc + IE_fluc)'
         self.de_problem.problem.substitutions['h_fluc']    = '(IE_fluc + P1)'
 
         self.de_problem.problem.substitutions['u_rms']      = 'sqrt(u**2)'
         self.de_problem.problem.substitutions['v_rms']      = 'sqrt(v**2)'
+        self.de_problem.problem.substitutions['u_perp_rms'] = 'sqrt(u**2 + v**2)'
         self.de_problem.problem.substitutions['w_rms']      = 'sqrt(w**2)'
         self.de_problem.problem.substitutions['Re_rms']   = '(vel_rms*Lz/nu)'
         self.de_problem.problem.substitutions['Pe_rms']   = '(vel_rms*Lz/chi)'
@@ -249,10 +252,10 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['viscous_flux_z'] = '(-rho_full * nu * (u*Sig_xz + v*Sig_yz + w*Sig_zz))'
         self.de_problem.problem.substitutions['F_conv_z']       = '(enth_flux_z + KE_flux_z + PE_flux_z + viscous_flux_z)'
 
-        self.de_problem.problem.substitutions['F_cond_z']      = '(-kappa_full*dz(T_full))'
-        self.de_problem.problem.substitutions['F_cond_fluc_z'] = '(-kappa_full*T1_z - kappa_fluc*T0_z)'
-        self.de_problem.problem.substitutions['F_cond0_z']     = '(-rho0*chi0*T0_z)'
-        self.de_problem.problem.substitutions['F_cond_ad_z']   = '(-kappa_full*T_ad_z)'
+        self.de_problem.problem.substitutions['F_cond_z']      = '(-1)*(kappa_full*dz(T_full))'
+        self.de_problem.problem.substitutions['F_cond_fluc_z'] = '(-1)*(kappa_full*T1_z + kappa_fluc*T0_z)'
+        self.de_problem.problem.substitutions['F_cond0_z']     = '(-1)*(rho0*chi0*T0_z)'
+        self.de_problem.problem.substitutions['F_cond_ad_z']   = '(-1)*(kappa_full*T_ad_z)'
 
         self.de_problem.problem.substitutions['Nu'] = '((F_conv_z + F_cond_z - F_cond_ad_z)/vol_avg(F_cond_z - F_cond_ad_z))'
 
@@ -303,6 +306,9 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['visc_u']   = "( (mu_full)*(Lap(u, u_z) + 1/3*Div(dx(u), dx(v), dx(w_z))) + (mu_full_z)*(Sig_xz))"
         self.de_problem.problem.substitutions['visc_v']   = "( (mu_full)*(Lap(v, v_z) + 1/3*Div(dy(u), dy(v), dy(w_z))) + (mu_full_z)*(Sig_yz))"
         self.de_problem.problem.substitutions['visc_w']   = "( (mu_full)*(Lap(w, w_z) + 1/3*Div(  u_z, dz(v), dz(w_z))) + (mu_full_z)*(Sig_zz))"                
+#        self.de_problem.problem.substitutions['L_visc_u'] = "(visc_u/rho0)"
+#        self.de_problem.problem.substitutions['L_visc_v'] = "(visc_v/rho0)"
+#        self.de_problem.problem.substitutions['L_visc_w'] = "(visc_w/rho0)"                
         self.de_problem.problem.substitutions['L_visc_u'] = "(visc_u/T0)"
         self.de_problem.problem.substitutions['L_visc_v'] = "(visc_v/T0)"
         self.de_problem.problem.substitutions['L_visc_w'] = "(visc_w/T0)"                
@@ -310,7 +316,11 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - (L_visc_v))"
         self.de_problem.problem.substitutions['R_visc_w'] = "(visc_w/rho_full - (L_visc_w))"
 
+
+
+
         self.de_problem.problem.substitutions['thermal'] = ('( ((1/Cv))*(kappa_full*Lap(T1, T1_z) + kappa_full_z*T1_z) )')
+#        self.de_problem.problem.substitutions['L_thermal'] = ('thermal/rho0')
         self.de_problem.problem.substitutions['L_thermal'] = ('thermal/T0')
         self.de_problem.problem.substitutions['R_thermal'] = ('( thermal/rho_full - (L_thermal) + ((1/Cv)/(rho_full))*(kappa_full*T0_zz + kappa_full_z*T0_z) )' )
         self.de_problem.problem.substitutions['source_terms'] = '0'
