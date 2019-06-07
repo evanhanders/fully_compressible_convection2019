@@ -334,3 +334,89 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['fixed_flux_R_RHS'] = "(0)"
 
         super(KappaMuFCE, self)._set_diffusion_subs()
+
+
+class AEKappaMuFCE(Equations):
+
+    def __init__(self, thermal_BC_dict, avg_field_dict, *args, ncc_cutoff=1e-10, kx=0, ky=0):
+        #Needs these parameters:
+        super(AEKappaMuFCE, self).__init__(*args)
+        variables = ['T1', 'T1_z', 'ln_rho1', 'M1']
+
+        self.de_problem.set_variables(variables, ncc_cutoff=ncc_cutoff)
+        self._set_parameters(avg_field_dict)
+        self._set_equations()
+        self._set_BCs(thermal_BC_dict)
+    
+    def _set_equations(self):
+        """ 
+        Sets the horizontally-averaged, stationary FC equations.
+        
+        Four equations are used in the FC BVP:
+        (1) A simple definition of T1_z
+        (2) A mass-accounting equation
+        (3) Modified hydrostatic equilibrium
+        (4) Vertical energy balance
+
+        In the last equation, we use the FULL energy equation, and only ensure
+        that the divergence of the vertical fluxes are balanced (which is to say,
+        there's no divergence of vertical flux unless there's an explicit internal
+        heating)
+
+        Four BCs must be used with these equations: two on integrated mass (which
+        constrain ln_rho1), and two on the temperature (the same as are used
+        in the IVP.
+        """
+        self.de_problem.problem.substitutions['AE_rho_full'] = '(rho0* exp(ln_rho1))'
+        self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
+        self.de_problem.problem.substitutions['Xi_w'] = '(Xi*w_prof_IVP)'
+        self.de_problem.problem.substitutions['mod_udotgradW'] = '(Xi**2 * (udotgradW_horiz) + Xi_w * dz(Xi_w) )'
+        self.de_problem.problem.substitutions['mod_viscous']   = ('(mu/AE_rho_full) * ( (4./3.)*dz(dz(Xi_w)))')
+
+        logger.debug('setting T1_z eqn')
+        self.de_problem.problem.add_equation("dz(T1) - T1_z = 0")
+
+        logger.debug('setting mass eqn')
+        self.de_problem.problem.add_equation("dz(M1) = AE_rho_fluc")
+
+        logger.debug('Setting energy equation')
+        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv)"))
+        
+        logger.debug('Setting HS equation')
+        self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
+                              "-T1 * dz(ln_rho1) - mod_udotgradW + mod_viscous "))
+        
+    def _set_BCs(self, thermal_BC_dict):
+        """ 
+        Sets thermal and mass-conserving boundary conditions for the BVP. By setting
+        the integrated mass fluctuation's value to be 0 at the top and bottom, we ensure
+        that no mass enters or leaves the domain in the process of the BVP solve.
+        """
+        if thermal_BC_dict['flux']:
+            raise NotImplementedError("BVP method not implemented for fixed flux BCs")
+        elif thermal_BC_dict['temp']:
+            raise NotImplementedError("BVP method not implemented for fixed temp BCs")
+        elif thermal_BC_dict['temp_flux']:
+            self.de_problem.problem.add_bc('left(T1) = 0')
+            self.de_problem.problem.add_bc('right(T1_z) = 0')
+        elif thermal_BC_dict['flux_temp']:
+            self.de_problem.problem.add_bc('left(T1_z) = 0')
+            self.de_problem.problem.add_bc('right(T1) = 0')
+        self.de_problem.problem.add_bc('right(M1) = 0')
+        self.de_problem.problem.add_bc('left(M1) = 0')
+        for key in ['T1', 'T1_z', 'M1']:
+            self.de_problem.problem.meta[key]['z']['dirichlet'] = True
+
+    def _set_parameters(self, field_averager):
+        for k in ['Xi', 'w_prof_IVP', 'udotgradW_horiz', 'mu', 'F_conv', 'kappa']:
+            this_field = self.de_domain.new_ncc()
+            this_field['g'] = field_averager[k]
+            self.de_problem.problem.parameters[k] = this_field 
+        for k, fd in self.atmosphere.atmo_fields.items():
+            self.de_problem.problem.parameters[k] = fd
+            fd.set_scales(1, keep_data=True)
+
+        for k, p in self.atmosphere.atmo_params.items():
+            self.de_problem.problem.parameters[k] = p
+
+

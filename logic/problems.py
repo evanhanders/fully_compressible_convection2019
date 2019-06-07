@@ -14,10 +14,14 @@ from dedalus.tools  import post
 
 try:
     from checkpointing import Checkpoint
+    from domains import DedalusDomain
+    from equations import AEKappaMuFCE
 except:
     from sys import path
     path.insert(0, './logic')
     from logic.checkpointing import Checkpoint
+    from logic.domains import DedalusDomain
+    from logic.equations import AEKappaMuFCE
 
 
 
@@ -107,8 +111,8 @@ class DedalusIVP(DedalusProblem):
         self.solver.stop_iteration = stop_iteration
         self.solver.stop_wall_time = stop_wall_time
 
-    def solve_IVP(self, dt, CFL, data_dir, analysis_tasks, *args,
-                  time_div=None, track_fields=['Pe'], threeD=False, Hermitian_cadence=100, no_join=False, mode='append', **kwargs):
+    def solve_IVP(self, dt, CFL, data_dir, analysis_tasks, task_args=(), pre_loop_args=(), task_kwargs={}, pre_loop_kwargs={},
+                  time_div=None, track_fields=['Pe'], threeD=False, Hermitian_cadence=100, no_join=False, mode='append'):
         """Logic for a while-loop that solves an initial value problem.
 
         Parameters
@@ -140,6 +144,8 @@ class DedalusIVP(DedalusProblem):
         for f in track_fields:
             flow.add_property(f, name=f)
 
+        self.pre_loop_setup(*pre_loop_args, **pre_loop_kwargs)
+
         start_time = time.time()
         # Main loop
         try:
@@ -157,7 +163,7 @@ class DedalusIVP(DedalusProblem):
                     for field in self.solver.state.fields:
                         field.require_grid_space()
 
-                self.special_tasks(*args, **kwargs)
+                self.special_tasks(*task_args, **task_kwargs)
 
                 #reporting string
                 flow_avg = flow.grid_average(track_fields[0])
@@ -223,7 +229,182 @@ class DedalusIVP(DedalusProblem):
             log_string += '{}: {:8.3e}/{:8.3e} '.format(f, flow.grid_average(f), flow.max(f))
         logger.info(log_string)
 
-    def special_tasks(self):
+    def special_tasks(self, *args, **kwargs):
         """An abstract function that occurs every iteration of the simulation. Child classes
         should implement case-specific logic here. """
         pass
+
+    def pre_loop_setup(self, *args, **kwargs):
+        """An abstract function that occurs before the simulation. Child classes
+        should implement case-specific logic here. """
+        pass
+
+class DedalusNLBVP(DedalusProblem):
+    """
+    An extension of the DedalusProblem class with some important functionality for 
+    initial value problems.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(DedalusNLBVP, self).__init__(*args, **kwargs)
+        self.problem_type = 'NLBVP'
+    
+    def build_problem(self, ncc_cutoff=1e-10):
+        """Constructs and initial value problem of the current object's equation set
+
+        Arguments:
+        ----------
+        ncc_cutoff  : float
+            The largest coefficient magnitude to keep track of when building NCCs
+        """
+        if self.variables is None:
+            logger.error("BVP variables must be set before problem is built")
+        self.problem = de.NLBVP(self.de_domain.domain, variables=self.variables, ncc_cutoff=ncc_cutoff)
+
+    def build_solver(self):
+        """ A wrapper on Dedalus' build_solver function """
+        self.solver = self.problem.build_solver()
+
+    def solve_BVP(self, tolerance=1e-10):
+        """Logic for a while-loop that solves a boundary value problem.
+
+        Parameters
+        ----------
+        """
+        pert = self.solver.perturbations.data
+        pert.fill(1+tolerance)
+        while np.sum(np.abs(pert)) > tolerance:
+            self.solver.newton_iteration()
+            logger.info('Perturbation norm: {}'.format(np.sum(np.abs(pert))))
+
+
+class AcceleratedEvolutionIVP(DedalusIVP):
+
+
+    def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2):
+        self.ae_convergence = 0.01
+        self.bvp_threshold = bvp_threshold
+        self.min_bvp_time   = min_bvp_time
+        self.sim_time_start = self.sim_time_wait = sim_time_start
+        self.doing_ae, self.finished_ae = False, False
+        self.averagers = []
+        for conv, cl in zip(convergence_averager, averager_classes):
+            self.averagers.append((conv, cl(self.solver, self.de_domain, root_dir)))
+        self.AE_atmo   = type(self.de_domain.atmosphere)(**atmo_kwargs)
+        self.AE_domain = DedalusDomain(self.AE_atmo, (self.de_domain.resolution[0],), 0, comm=MPI.COMM_SELF)
+        self.AE_experiment = experiment_class(self.AE_domain, self.AE_atmo, *experiment_args[2:], **experiment_kwargs)
+
+    def check_averager_convergence(self):
+        if (self.solver.sim_time  - self.sim_time_start) > self.min_bvp_time:
+            for conv, averager in self.averagers:
+                if not conv: continue
+                maxs = list()
+                for k in averager.FIELDS.keys():
+                    maxs.append(averager.find_global_max(averager.local_l2[k]))
+
+                logger.info('AE: Max abs L2 norm for convergence: {:.4e} / {:.4e}'.format(np.max(maxs), self.bvp_threshold))
+                if np.max(maxs) < self.bvp_threshold:
+                    return True
+                else:
+                    return False
+        
+
+    def special_tasks(self, thermal_BC_dict):
+        first = False
+        if not self.doing_ae and not self.finished_ae and self.solver.sim_time > self.sim_time_start:
+            for conv, averager in self.averagers:
+                averager.reset_fields() #set time data properly
+            self.doing_ae = True
+            first = True
+
+        if self.doing_ae:
+            for conv, averager in self.averagers:
+                averager.update_avgs()
+
+            if first:
+               return 
+
+            do_AE = self.check_averager_convergence()
+
+            if do_AE:
+                de_problem = DedalusNLBVP(self.AE_domain)
+                avg_fields = OrderedDict()
+                for conv, averager in self.averagers:
+                    for k, prof in averager.avg_profiles.items():
+                        avg_fields[k] = averager.local_to_global_average(prof/averager.elapsed_avg_time)
+                    averager.save_file()
+                avg_fields = self.condition_flux(avg_fields, thermal_BC_dict)
+                equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.AE_atmo, self.AE_domain, de_problem)
+                de_problem.build_solver()
+                de_problem.solve_BVP()
+
+                # Update fields appropriately
+                diff = self.update_simulation_fields(de_problem, avg_fields)
+
+                if diff < self.ae_convergence: self.finished_ae = True
+                logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
+                self.doing_ae = False
+                self.sim_time_start = self.solver.sim_time + self.sim_time_wait
+
+    def update_simulation_fields(self, de_problem):
+        pass
+
+    def condition_flux(self, avg_fields):
+        return avg_fields
+
+class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
+
+    def condition_flux(self, avg_fields, thermal_BC_dict):
+        Fconv_in = avg_fields['F_conv']
+        F_tot_in = avg_fields['F_tot_superad']
+        if thermal_BC_dict['flux_temp']:
+            F_avail  = -np.mean(self.AE_atmo.atmo_fields['rho0'].interpolate(z=0)['g']\
+                              *self.AE_atmo.atmo_fields['chi0'].interpolate(z=0)['g']
+                              *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=0)['g']-self.AE_atmo.atmo_params['T_ad_z'])
+                              )
+        elif thermal_BC_dict['temp_flux']:
+            Lz = self.AE_atmo.atmo_params['Lz']
+            F_avail  = -np.mean(self.AE_atmo.atmo_fields['rho0'].interpolate(z=Lz)['g']\
+                              *self.AE_atmo.atmo_fields['chi0'].interpolate(z=Lz)['g']
+                              *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z'])
+                              )
+        xi = F_avail/F_tot_in
+        avg_fields['Xi'] = xi
+        return avg_fields
+
+    def update_simulation_fields(self, de_problem, avg_fields):
+        if len(self.de_domain.domain.dist.mesh) == 0:
+            z_rank = self.de_domain.domain.dist.comm_cart.rank
+        else:
+            z_rank = self.de_domain.domain.dist.comm_cart.rank % self.de_domain.domain.dist.mesh[-1] 
+        my_range = (self.averagers[0][1].nz_per_proc*z_rank,
+                   self.averagers[0][1].nz_per_proc*(1+z_rank))
+
+        T1 = self.solver.state['T1']
+        T1.set_scales(1, keep_data=True)
+        T1['g'] += (de_problem.solver.state['T1']['g'][my_range[0]:my_range[1]] - avg_fields['T1'][my_range[0]:my_range[1]])
+        T1.set_scales(1, keep_data=True)
+#        T1['g'] *= 1/avg_fields['Xi'][my_range[0]:my_range[1]]**(1./4)
+#        T1.set_scales(1, keep_data=True)
+#        de_problem.solver.state['T1'].set_scales(1, keep_data=True)
+#        T1['g'] +=  de_problem.solver.state['T1']['g'][my_range[0]:my_range[1]]
+        T1.differentiate('z', out=self.solver.state['T1_z'])
+
+        self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
+        de_problem.solver.state['T1'].set_scales(1, keep_data=True)
+        T0 = self.AE_atmo.atmo_fields['T0']['g']
+
+        diff = 1 - (de_problem.solver.state['T1']['g'])/(avg_fields['T1'][my_range[0]:my_range[1]])
+
+        ln_rho1 = self.solver.state['ln_rho1']
+        ln_rho1.set_scales(1, keep_data=True)
+        ln_rho1['g'] += (de_problem.solver.state['ln_rho1']['g'][my_range[0]:my_range[1]] - avg_fields['ln_rho1'][my_range[0]:my_range[1]])
+        ln_rho1.set_scales(1, keep_data=True)
+#        self.de_domain.atmosphere.rho0.set_scales(1, keep_data=True)
+#        rho0 = self.de_domain.atmosphere.rho0['g']
+#        rho_flucs = rho0*(np.exp(ln_rho1['g'] - avg_fields['ln_rho1'][my_range[0]:my_range[1]])
+#        rho_flucs *= 1/avg_fields['Xi'][my_range[0]:my_range[1]]**(1./4)
+#        ln_rho1['g'] = np.log(1 + rho_flucs/rho0['g'])
+
+        return np.max(np.abs(diff))
+        

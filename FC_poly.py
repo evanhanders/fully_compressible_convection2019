@@ -42,12 +42,14 @@ Options:
     --checkpoint_buoy=<dt>     Simulation buoyancy times between outputs [default: 10]
     --no_join                  If flagged, don't join files at end of run
 
+    --ae                       Accelerated evolution
+
 """
 def name_case(input_dict):
     """
     Creates an informative string of the form:
 
-    FC_poly_Ra{0}_Pr{1}_n{2}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}
+    FC_poly_Ra{0}_Pr{1}_n{2}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}{10}
 
     where the numbers here are:
     {0}     - Rayleigh number
@@ -59,7 +61,8 @@ def name_case(input_dict):
     {6}     - Thermal BCs
     {7}     - Velocity BCs
     {8}     - Resolution (nz x nx [2D] or nz x nx x ny [3D])
-    {9}     - _ + label, if label is not None
+    {9}     - _AE if doing an AE run, 
+    {10}    - _label if label is not None
 
     Parameters
     ----------
@@ -84,6 +87,8 @@ def name_case(input_dict):
         case_name += '_{}x{}x{}'.format( input_dict['--nz'], input_dict['--nx'], input_dict['--ny'] )
     else:
         case_name += '_{}x{}'.format( input_dict['--nz'], input_dict['--nx'] )
+    if input_dict['--ae']:
+        case_name += '_AE'
     if input_dict['--label'] is not None:
         case_name += "_{}".format(input_dict['--label'])
     data_dir = '{:s}/{:s}/'.format(input_dict['--root_dir'], case_name)
@@ -118,10 +123,11 @@ def FC_polytropic_convection(input_dict):
     from logic.atmospheres   import Polytrope
     from logic.domains       import DedalusDomain
     from logic.experiments   import CompressibleConvection
-    from logic.problems      import DedalusIVP
+    from logic.problems      import DedalusIVP, FCAcceleratedEvolutionIVP
     from logic.equations     import KappaMuFCE
     from logic.outputs       import initialize_output
     from logic.checkpointing import Checkpoint
+    from logic.field_averager import AveragerFCAE
 
     import logging
     logger = logging.getLogger(__name__)
@@ -179,10 +185,16 @@ def FC_polytropic_convection(input_dict):
     de_domain = DedalusDomain(*domain_args, **domain_kwargs)
 
     #Set diffusivities
-    experiment = CompressibleConvection(de_domain, atmosphere, Ra, Pr, const_diffs=False)
+    experiment_args = (de_domain, atmosphere, Ra, Pr)
+    experiment_kwargs = {'const_diffs' : False}
+    experiment = CompressibleConvection(*experiment_args, **experiment_kwargs)
 
     #Set up problem and equations
-    de_problem = DedalusIVP(de_domain)
+    if args['--ae']:
+        problem_type = FCAcceleratedEvolutionIVP
+    else:
+        problem_type = DedalusIVP
+    de_problem = problem_type(de_domain)
     equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     # Build solver, set stop times
@@ -217,7 +229,14 @@ def FC_polytropic_convection(input_dict):
         CFL.add_velocities(('u', 'w'))
    
     # Solve the IVP.
-    de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
+    if args['--ae']:
+        task_args = (thermal_BC,)
+        pre_loop_args = ((AveragerFCAE,), (True,), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
+        task_kwargs = {}
+        pre_loop_kwargs = {'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 'min_bvp_time' : 5*atmosphere.atmo_params['t_buoy']}
+        de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, task_args=task_args, pre_loop_args=pre_loop_args, task_kwargs=task_kwargs, pre_loop_kwargs=pre_loop_kwargs, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
+    else:
+        de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
 
 if __name__ == "__main__":
     from docopt import docopt
