@@ -37,7 +37,7 @@ fig_name   = args['--fig_name']
 out_dir     = '{:s}/{:s}/'.format(root_dir, fig_name)
 
 if int(args['--fig_type']) == 1:
-    fnames = [('T_fluc', {}), ('w', {}), ('enstrophy', {'symm_cbar': False, 'cmap': 'Purples'})]
+    fnames = [('s1', {}), ('Vort_y', {})]#, ('enstrophy', {'symm_cbar': False, 'cmap': 'Purples'})]
 buddy1 =  MovieBuddy(root_dir, file_dirs=['slices'], start_file=start_file, n_files=n_files)
 
 if buddy1.cw_rank == 0 and not os.path.exists('{:s}'.format(out_dir)):

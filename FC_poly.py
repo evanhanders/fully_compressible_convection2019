@@ -198,7 +198,7 @@ def FC_polytropic_convection(input_dict):
     equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     # Build solver, set stop times
-    de_problem.build_solver(ts = de.timesteppers.SBDF2)
+    de_problem.build_solver(de.timesteppers.SBDF2)
 
     if run_time_buoy is None:
         stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
@@ -233,7 +233,7 @@ def FC_polytropic_convection(input_dict):
         task_args = (thermal_BC,)
         pre_loop_args = ((AveragerFCAE,), (True,), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = {'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 'min_bvp_time' : 5*atmosphere.atmo_params['t_buoy']}
+        pre_loop_kwargs = {'sim_time_start' : 20*atmosphere.atmo_params['t_buoy'], 'min_bvp_time' : 5*atmosphere.atmo_params['t_buoy']}
         de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, task_args=task_args, pre_loop_args=pre_loop_args, task_kwargs=task_kwargs, pre_loop_kwargs=pre_loop_kwargs, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
     else:
         de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)

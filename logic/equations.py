@@ -268,9 +268,9 @@ class FullyCompressibleEquations(Equations):
             self.de_problem.problem.parameters[k] = p
 
         if self.de_domain.dimensions > 1:
-            self.de_problem.problem.parameters['Lx'] = self.de_domain.domain.bases[1].interval[1] - self.de_domain.domain.bases[1].interval[0]
+            self.de_problem.problem.parameters['Lx'] = self.de_domain.domain.bases[0].interval[1] - self.de_domain.domain.bases[0].interval[0]
         if self.de_domain.dimensions > 2:
-            self.de_problem.problem.parameters['Ly'] = self.de_domain.domain.bases[2].interval[1] - self.de_domain.domain.bases[2].interval[0]
+            self.de_problem.problem.parameters['Ly'] = self.de_domain.domain.bases[1].interval[1] - self.de_domain.domain.bases[1].interval[0]
 
     def _set_diffusion_subs(self):
         pass
@@ -369,9 +369,10 @@ class AEKappaMuFCE(Equations):
         """
         self.de_problem.problem.substitutions['AE_rho_full'] = '(rho0* exp(ln_rho1))'
         self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
-        self.de_problem.problem.substitutions['Xi_w'] = '(Xi*w_prof_IVP)'
-        self.de_problem.problem.substitutions['mod_udotgradW'] = '(Xi**2 * (udotgradW_horiz) + Xi_w * dz(Xi_w) )'
-        self.de_problem.problem.substitutions['mod_viscous']   = ('(mu/AE_rho_full) * ( (4./3.)*dz(dz(Xi_w)))')
+        self.de_problem.problem.substitutions['w'] = '(w_prof_IVP)'
+        self.de_problem.problem.substitutions['mod_udotgradW'] = '((udotgradW_horiz) + w * dz(w) )'
+        self.de_problem.problem.substitutions['mod_viscous']   = ('(mu/AE_rho_full) * ( (4./3.)*dz(dz(w)))')
+        self.de_problem.problem.substitutions['F_superad_initial'] = '-kappa*(T0_z - T_ad_z)'
 
         logger.debug('setting T1_z eqn')
         self.de_problem.problem.add_equation("dz(T1) - T1_z = 0")
@@ -380,11 +381,11 @@ class AEKappaMuFCE(Equations):
         self.de_problem.problem.add_equation("dz(M1) = AE_rho_fluc")
 
         logger.debug('Setting energy equation')
-        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv)"))
+        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv) - kappa*dz(T0_z - T_ad_z)"))
         
         logger.debug('Setting HS equation')
         self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
-                              "-T1 * dz(ln_rho1) - mod_udotgradW + mod_viscous "))
+                              "-T1 * dz(ln_rho1)"))# - mod_udotgradW + mod_viscous "))
         
     def _set_BCs(self, thermal_BC_dict):
         """ 

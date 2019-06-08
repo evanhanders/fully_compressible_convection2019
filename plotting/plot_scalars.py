@@ -44,14 +44,14 @@ if isinstance(root_dir, type(None)):
 plotter = ScalarBuddy(root_dir, n_files=n_files, start_file=start_file)
 try:
     plotter.track_scalar('Nu')
-    plotter.track_scalar('Re')
-    energies = ['KE', 'IE', 'TE']
+    plotter.track_scalar('Re_rms')
+    energies = ['KE', 'IE_fluc', 'PE_fluc', 'TE_fluc']
     [plotter.track_scalar(s) for s in energies]
     plotter.pull_tracked_scalars()
 
     plotter.add_plot('Energy_v_time.png', energies, start_x_avg=avg_start_time)
     plotter.add_plot('nu_v_time.png', 'Nu', start_x_avg=avg_start_time)
-    plotter.add_plot('re_v_time.png', 'Re', start_x_avg=avg_start_time)
+    plotter.add_plot('re_v_time.png', 'Re_rms', start_x_avg=avg_start_time)
     plotter.make_plots(do_avg=not(no_avg))
     plotter.save_scalars()
 except:

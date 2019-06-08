@@ -51,10 +51,11 @@ class DedalusProblem():
         self.solver         = None
         return
 
-    def build_problem(self):
-        pass
+    def build_solver(self, *args):
+        """ Wraps the dedalus solver class and fills the solver attribute of the DedalusProblem class """
+        self.solver = self.problem.build_solver(*args)
 
-    def build_solver(self):
+    def build_problem(self):
         pass
 
     def set_variables(self, variables, **kwargs):
@@ -84,16 +85,6 @@ class DedalusIVP(DedalusProblem):
         if self.variables is None:
             logger.error("IVP variables must be set before problem is built")
         self.problem = de.IVP(self.de_domain.domain, variables=self.variables, ncc_cutoff=ncc_cutoff)
-
-    def build_solver(self, ts=de.timesteppers.SBDF2):
-        """A wrapper on Dedalus' build_solver function
-
-        Arguments:
-        ----------
-        ts      : A Dedalus timestepper object, optional
-            The type of timestepper being used in the problem (RK443, SBDF2, etc)
-        """
-        self.solver = self.problem.build_solver(ts)
 
     def set_stop_condition(self, stop_sim_time=np.inf, stop_iteration=np.inf, stop_wall_time=28800):
         """Set the conditions for when the solver should stop timestepping
@@ -150,10 +141,9 @@ class DedalusIVP(DedalusProblem):
         # Main loop
         try:
             logger.info('Starting loop')
-            flow_avg = 0
             init_time = self.solver.sim_time
             start_iter = self.solver.iteration
-            while (self.solver.ok and np.isfinite(flow_avg)):
+            while (self.solver.ok):
                 dt = CFL.compute_dt()
                 self.solver.step(dt) #, trim=True)
 
@@ -166,8 +156,10 @@ class DedalusIVP(DedalusProblem):
                 self.special_tasks(*task_args, **task_kwargs)
 
                 #reporting string
-                flow_avg = flow.grid_average(track_fields[0])
                 self.iteration_report(dt, flow, track_fields, time_div=time_div)
+
+                if not np.isfinite(flow.grid_average(track_fields[0])):
+                    break
         except:
             raise
             logger.error('Exception raised, triggering end of main loop.')
@@ -205,7 +197,8 @@ class DedalusIVP(DedalusProblem):
                 logger.info('iter/sec: {:f} (main loop only)'.format(n_iter_loop/main_loop_time))
     
     def iteration_report(self, dt, flow, track_fields, time_div=None):
-        """This function is called every iteration of the simulation loop and provides some text output
+        """
+        This function is called every iteration of the simulation loop and provides some text output
         to the user to tell them about the current status of the simulation. This function is meant
         to be overwritten in inherited child classes for specific use cases.
 
@@ -261,10 +254,6 @@ class DedalusNLBVP(DedalusProblem):
             logger.error("BVP variables must be set before problem is built")
         self.problem = de.NLBVP(self.de_domain.domain, variables=self.variables, ncc_cutoff=ncc_cutoff)
 
-    def build_solver(self):
-        """ A wrapper on Dedalus' build_solver function """
-        self.solver = self.problem.build_solver()
-
     def solve_BVP(self, tolerance=1e-10):
         """Logic for a while-loop that solves a boundary value problem.
 
@@ -279,7 +268,9 @@ class DedalusNLBVP(DedalusProblem):
 
 
 class AcceleratedEvolutionIVP(DedalusIVP):
-
+    """
+    Solves an IVP using BVPs to accelerate the evolution of the IVP, as in Anders, Brown, & Oishi 2018 PRFluids.
+    """
 
     def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2):
         self.ae_convergence = 0.01
@@ -345,6 +336,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
                 self.doing_ae = False
                 self.sim_time_start = self.solver.sim_time + self.sim_time_wait
+                self.bvp_threshold /= 1.5
 
     def update_simulation_fields(self, de_problem):
         pass
@@ -357,17 +349,12 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
     def condition_flux(self, avg_fields, thermal_BC_dict):
         Fconv_in = avg_fields['F_conv']
         F_tot_in = avg_fields['F_tot_superad']
+        kappa    = avg_fields['kappa']
         if thermal_BC_dict['flux_temp']:
-            F_avail  = -np.mean(self.AE_atmo.atmo_fields['rho0'].interpolate(z=0)['g']\
-                              *self.AE_atmo.atmo_fields['chi0'].interpolate(z=0)['g']
-                              *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=0)['g']-self.AE_atmo.atmo_params['T_ad_z'])
-                              )
+            F_avail  = -np.mean(kappa[0] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=0)['g']-self.AE_atmo.atmo_params['T_ad_z']))
         elif thermal_BC_dict['temp_flux']:
             Lz = self.AE_atmo.atmo_params['Lz']
-            F_avail  = -np.mean(self.AE_atmo.atmo_fields['rho0'].interpolate(z=Lz)['g']\
-                              *self.AE_atmo.atmo_fields['chi0'].interpolate(z=Lz)['g']
-                              *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z'])
-                              )
+            F_avail  = -np.mean(kappa[0] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z']))
         xi = F_avail/F_tot_in
         avg_fields['Xi'] = xi
         return avg_fields
@@ -380,31 +367,36 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         my_range = (self.averagers[0][1].nz_per_proc*z_rank,
                    self.averagers[0][1].nz_per_proc*(1+z_rank))
 
+        #Calculate instantaneous thermo profiles
         T1 = self.solver.state['T1']
         T1.set_scales(1, keep_data=True)
-        T1['g'] += (de_problem.solver.state['T1']['g'][my_range[0]:my_range[1]] - avg_fields['T1'][my_range[0]:my_range[1]])
+        T1_prof = np.mean(T1['g'], axis=0)
+
+        ln_rho1 = self.solver.state['ln_rho1']
+        ln_rho1.set_scales(1, keep_data=True)
+        ln_rho_prof = np.mean(ln_rho1['g'], axis=0) 
+
+        if self.de_domain.dimensions == 3:
+            T1_prof = np.mean(T1_prof, axis=0)
+            ln_rho_prof = np.mean(ln_rho_prof, axis=0)
+
+        #Adjust Temp
         T1.set_scales(1, keep_data=True)
-#        T1['g'] *= 1/avg_fields['Xi'][my_range[0]:my_range[1]]**(1./4)
-#        T1.set_scales(1, keep_data=True)
-#        de_problem.solver.state['T1'].set_scales(1, keep_data=True)
-#        T1['g'] +=  de_problem.solver.state['T1']['g'][my_range[0]:my_range[1]]
+        T1['g'] += de_problem.solver.state['T1']['g'][my_range[0]:my_range[1]] - T1_prof
+        T1.set_scales(1, keep_data=True)
         T1.differentiate('z', out=self.solver.state['T1_z'])
 
+        #Adjust lnrho
+        ln_rho1.set_scales(1, keep_data=True)
+        ln_rho1['g'] += de_problem.solver.state['ln_rho1']['g'][my_range[0]:my_range[1]] - ln_rho_prof
+        ln_rho1.set_scales(1, keep_data=True)
+
+        # % diff, normalized by epsilon, basically
         self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
         de_problem.solver.state['T1'].set_scales(1, keep_data=True)
         T0 = self.AE_atmo.atmo_fields['T0']['g']
 
-        diff = 1 - (de_problem.solver.state['T1']['g'])/(avg_fields['T1'][my_range[0]:my_range[1]])
-
-        ln_rho1 = self.solver.state['ln_rho1']
-        ln_rho1.set_scales(1, keep_data=True)
-        ln_rho1['g'] += (de_problem.solver.state['ln_rho1']['g'][my_range[0]:my_range[1]] - avg_fields['ln_rho1'][my_range[0]:my_range[1]])
-        ln_rho1.set_scales(1, keep_data=True)
-#        self.de_domain.atmosphere.rho0.set_scales(1, keep_data=True)
-#        rho0 = self.de_domain.atmosphere.rho0['g']
-#        rho_flucs = rho0*(np.exp(ln_rho1['g'] - avg_fields['ln_rho1'][my_range[0]:my_range[1]])
-#        rho_flucs *= 1/avg_fields['Xi'][my_range[0]:my_range[1]]**(1./4)
-#        ln_rho1['g'] = np.log(1 + rho_flucs/rho0['g'])
+        diff = (1 - (T0 + de_problem.solver.state['T1']['g'])/(T0 + T1_prof)) / np.max(np.abs(T1_prof))
 
         return np.max(np.abs(diff))
         
