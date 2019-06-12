@@ -236,7 +236,7 @@ def FC_polytropic_convection(input_dict):
         pre_loop_kwargs = {'sim_time_start' : 20*atmosphere.atmo_params['t_buoy'], 'min_bvp_time' : 5*atmosphere.atmo_params['t_buoy']}
         de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, task_args=task_args, pre_loop_args=pre_loop_args, task_kwargs=task_kwargs, pre_loop_kwargs=pre_loop_kwargs, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
     else:
-        de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
+        de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms', 'dissipation'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
 
 if __name__ == "__main__":
     from docopt import docopt

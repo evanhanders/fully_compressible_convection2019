@@ -217,7 +217,7 @@ class DedalusIVP(DedalusProblem):
         log_string += 'Time: {:8.3e}'.format(self.solver.sim_time)
         if time_div is not None:
             log_string += ' ({:8.3e})'.format(self.solver.sim_time/time_div)
-        log_string += ', dt: {:8.3e}, '.format(self.solver.sim_time, dt)
+        log_string += ', dt: {:8.3e}, '.format(dt)
         for f in track_fields:
             log_string += '{}: {:8.3e}/{:8.3e} '.format(f, flow.grid_average(f), flow.max(f))
         logger.info(log_string)

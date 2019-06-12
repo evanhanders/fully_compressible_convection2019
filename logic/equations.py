@@ -258,6 +258,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['F_cond_ad_z']   = '(-1)*(kappa_full*T_ad_z)'
 
         self.de_problem.problem.substitutions['Nu'] = '((F_conv_z + F_cond_z - F_cond_ad_z)/vol_avg(F_cond_z - F_cond_ad_z))'
+        self.de_problem.problem.substitutions['dissipation'] = "sqrt(((dz(T_full)/T_full)**2 - (dz(T0)/T0)**2)**2)" 
 
     def _set_parameters(self):
         for k, fd in self.atmosphere.atmo_fields.items():
