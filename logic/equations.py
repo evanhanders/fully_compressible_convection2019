@@ -89,10 +89,10 @@ class FullyCompressibleEquations(Equations):
 
     def _specify_forcings(self):
         """ A general function for adding forcings (rotation, MHD, etc.) to the FC equations """
-        self.de_problem.problem.parameters['L_u_force'] = 0
-        self.de_problem.problem.parameters['L_v_force'] = 0
-        self.de_problem.problem.parameters['L_w_force'] = 0
-        self.de_problem.problem.parameters['L_thermal_force'] = 0
+        self.de_problem.problem.substitutions['L_u_force'] = '0'
+        self.de_problem.problem.substitutions['L_v_force'] = '0'
+        self.de_problem.problem.substitutions['L_w_force'] = '0'
+        self.de_problem.problem.substitutions['L_thermal_force'] = '0'
         self.de_problem.problem.parameters['R_u_force'] = 0
         self.de_problem.problem.parameters['R_v_force'] = 0
         self.de_problem.problem.parameters['R_w_force'] = 0

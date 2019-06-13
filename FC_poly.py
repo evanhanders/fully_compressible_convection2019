@@ -185,7 +185,7 @@ def FC_polytropic_convection(input_dict):
 
     #Set diffusivities
     experiment_args = (de_domain, atmosphere, Ra, Pr)
-    experiment_kwargs = {'const_diffs' : False}
+    experiment_kwargs = {}
     experiment = CompressibleConvection(*experiment_args, **experiment_kwargs)
 
     #Set up problem and equations

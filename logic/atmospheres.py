@@ -80,7 +80,7 @@ class IdealGasAtmosphere:
             Additional fields to add to self.atmo_fields
         """
         fds = ['T0', 'T0_z', 'T0_zz', 'rho0', 'ln_rho0', 'ln_rho0_z', 'phi', 'chi0', 'nu0']
-        if type(adtl_fds) is list:
+        if type(add_fields) is list:
             fds += add_fields
         for f in fds:
             self.atmo_fields[f] = de_domain.new_ncc()
@@ -189,7 +189,7 @@ class Polytrope(IdealGasAtmosphere):
         self.atmo_fields['ln_rho0'].differentiate('z', out=self.atmo_fields['ln_rho0_z'])
         self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(T0)
 
-    def set_diffusivities(self, chi_top, nu_top):
+    def set_diffusivites(self, chi_top, nu_top):
         """
         Specifies diffusivity profiles of initial conditions. Initial diffusivites go like 1/rho,
         such that the dynamic diffusivites are constant in the initial atmosphere.
@@ -201,10 +201,10 @@ class Polytrope(IdealGasAtmosphere):
         nu_top : float
             Viscous diffusivity at top of atmosphere (length^2 / time)
         """
-        self.atmosphere.atmo_fields['chi0']['g'] = chi_top/self.atmosphere.atmo_fields['rho0']['g']
-        self.atmosphere.atmo_fields['nu0']['g']  =  nu_top/self.atmosphere.atmo_fields['rho0']['g']
-        Lz = self.atmosphere.atmo_params['Lz']
-        self.atmosphere.atmo_params['t_therm'] = Lz**2/np.mean(self.atmosphere.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
-        [self.atmosphere.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
+        self.atmo_fields['chi0']['g'] = chi_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['nu0']['g']  =  nu_top/self.atmo_fields['rho0']['g']
+        Lz = self.atmo_params['Lz']
+        self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
+        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
-        logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmosphere.atmo_params['t_therm']/self.atmosphere.atmo_params['t_buoy']))
+        logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))

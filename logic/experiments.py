@@ -33,7 +33,7 @@ class CompressibleConvection:
         """
         self.de_domain  = de_domain
         self.atmosphere = atmosphere
-        self._set_diffusivities(Ra, Pr, **kwargs)
+        self._set_diffusivities(*args, **kwargs)
         return
 
     def _set_diffusivities(self, Ra, Pr, **kwargs):
