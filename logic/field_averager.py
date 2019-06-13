@@ -16,6 +16,7 @@ except:
     from logic.functions import mpi_makedirs
 
 class FieldAverager:
+    """ Does averaging for accelerated evolution. WIP. """
 
     FIELDS = None
     OUT_DIR = 'averager'

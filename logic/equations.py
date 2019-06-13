@@ -9,35 +9,46 @@ logger = logging.getLogger(__name__.split('.')[-1])
 
 from dedalus import public as de
 
+try:
+    from atmospheres import Polytrope
+except:
+    from sys import path
+    path.insert(0, './logic')
+    from logic.atmospheres import Polytrope
+
+
 
 class Equations():
     """
     An abstract class that interacts with Dedalus to do some over-arching equation
     setup logic, etc.
+
+    Attributes:
+    -----------
+        atmosphere : IdealGasAtmosphere or other similar Atmosphere object
+            Contains info on the atmosphere in which equations will be solved.
+        de_domain : DedalusDomain object
+            Contains info on the domain on which equations will be solved.
+        de_problem: DedalusProblem object
+            Contains info on the problem which will solve the equations.
     """
 
     def __init__(self, atmosphere, de_domain, de_problem):
         """Initialize the class
 
-        Parameters
-        ----------
-        atmosphere  : Atmospehre object
-            Contains info on the atmosphere in which FC equations will be solved
-        de_domain   : DedalusDomain object
-            Contains info regarding domain on which equations will be solved
-        de_problem  : DedalusProblem object
-            Contains info regarding problem on which equations will be solved
+        Parameters -- see class level docstring attributes.
         """
         self.atmosphere = atmosphere
         self.de_domain  = de_domain
         self.de_problem = de_problem
         return
 
-
 class FullyCompressibleEquations(Equations):
     """
-    An abstract class containing the fully compressible equations which must
-    be extended to specify the type of diffusivities
+    An abstract class containing the fully compressible equations in a
+    T, ln_rho formulation in cartesian geometry.
+    This class must be extended to specify the type of diffusivities, and can be generally
+    extended to add forcings (e.g., rotation) to the equations
     """
     def __init__(self, thermal_BC_dict, velocity_BC_dict, *args, ncc_cutoff=1e-10, kx=0, ky=0):
         super(FullyCompressibleEquations, self).__init__(*args)
@@ -59,31 +70,44 @@ class FullyCompressibleEquations(Equations):
         Sets the fully compressible equations of in a ln_rho / T formulation,
         as in e.g., Lecoanet et al. 2014 or Anders, Lecoanet, and Brown 2019.
         """ 
+        self._specify_forcings()
         self.de_problem.problem.add_equation(    "dz(u) - u_z = 0")
         if self.de_domain.dimensions == 3:
             self.de_problem.problem.add_equation("dz(v) - v_z = 0")
         self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
         self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
         self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u ) = (scale_c)*(-UdotGrad(ln_rho1, dz(ln_rho1)))"))
-        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) + T1*ln_rho0_z - L_visc_w) = "
-                                       "(scale_m_z)*(- UdotGrad(w, w_z) - T1*dz(ln_rho1) + R_visc_w)"))
-        self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u) = "
-                                       "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u)"))
+        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) + T1*ln_rho0_z - L_visc_w + L_w_force) = "
+                                                                "(scale_m_z)*(- UdotGrad(w, w_z) - T1*dz(ln_rho1) + R_visc_w + R_w_force)"))
+        self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u + L_u_force) = "
+                                                                   "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u + R_u_force)"))
         if self.de_domain.dimensions == 3:
-            self.de_problem.problem.add_equation(("(scale_m)*( dt(v) + dy(T1)   + T0*dy(ln_rho1)                  - L_visc_v) = "
-                                       "(scale_m)*(-UdotGrad(v, v_z) - T1*dy(ln_rho1) + R_visc_v)"))
-        self.de_problem.problem.add_equation((    "(scale_e)*( dt(T1)   + w*T0_z  + (gamma-1)*T0*Div_u -  L_thermal) = "
-                                       "(scale_e)*(-UdotGrad(T1, T1_z) - (gamma-1)*T1*Div_u + R_thermal + R_visc_heat + source_terms)"))
+            self.de_problem.problem.add_equation(("(scale_m)*( dt(v) + dy(T1)   + T0*dy(ln_rho1)                  - L_visc_v + L_v_force) = "
+                                                                   "(scale_m)*(-UdotGrad(v, v_z) - T1*dy(ln_rho1) + R_visc_v + R_v_force)"))
+        self.de_problem.problem.add_equation((    "(scale_e)*( dt(T1)   + w*T0_z  + (gamma-1)*T0*Div_u -  L_thermal + L_thermal_force) = "
+                                       "(scale_e)*(-UdotGrad(T1, T1_z) - (gamma-1)*T1*Div_u + R_thermal + R_visc_heat + source_terms + R_thermal_force)"))
+
+    def _specify_forcings(self):
+        """ A general function for adding forcings (rotation, MHD, etc.) to the FC equations """
+        self.de_problem.problem.parameters['L_u_force'] = 0
+        self.de_problem.problem.parameters['L_v_force'] = 0
+        self.de_problem.problem.parameters['L_w_force'] = 0
+        self.de_problem.problem.parameters['L_thermal_force'] = 0
+        self.de_problem.problem.parameters['R_u_force'] = 0
+        self.de_problem.problem.parameters['R_v_force'] = 0
+        self.de_problem.problem.parameters['R_w_force'] = 0
+        self.de_problem.problem.parameters['R_thermal_force'] = 0
 
     def _set_BC(self, thermal_BC_dict, velocity_BC_dict):
         """
         Sets the velocity and thermal boundary conditions at the upper and lower boundaries.  
-        Choose one thermal type of BC and one velocity type of BC to set those conditions.  
-        See set_thermal_BC() and set_velocity_BC() functions for more info.
 
         Parameters
         ----------
-
+        thermal_BC_dict : OrderedDict
+            contains info specifying thermal boundary conditions
+        velocity_BC_dict : OrderedDict
+            contains info specifying velocity boundary conditions
         """
         self.dirichlet_set = []
         self._set_thermal_BC(thermal_BC_dict)
@@ -97,7 +121,8 @@ class FullyCompressibleEquations(Equations):
 
         Parameters
         ----------
-
+        BC_dict : OrderedDict
+            contains info specifying thermal boundary conditions
         """
         BC_set = False
         for k in BC_dict.keys():
@@ -137,7 +162,8 @@ class FullyCompressibleEquations(Equations):
 
         Parameters
         ----------
-
+        BC_dict : OrderedDict
+            contains info specifying horizontal velocity boundary conditions
         """
         BC_set = False
         for k in BC_dict.keys():
@@ -174,6 +200,13 @@ class FullyCompressibleEquations(Equations):
         self.dirichlet_set.append('w')
 
     def _set_basic_subs(self, kx = 0, ky = 0):
+        """ Sets basic substitutions which are used throughout equation specification
+
+        Parameters
+        ----------
+        kx, ky : floats
+            Horizontal x- and y- wavenumbers, if equations are solved on a 1D domain 
+        """
         if self.de_domain.dimensions == 1:
             self.de_problem.problem.parameters['j'] = 1j
             self.de_problem.problem.parameters['kx'] = kx
@@ -214,6 +247,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['s_full']   = '(Cv*log(T_full) - R*(ln_rho0 + ln_rho1))'
 
     def _set_output_subs(self):
+        """ Sets useful substitutions for output processes """
         if self.de_domain.dimensions == 1:
             self.de_problem.problem.substitutions['plane_avg(A)'] = 'A'
             self.de_problem.problem.substitutions['plane_std(A)'] = '0'
@@ -261,6 +295,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['dissipation'] = "sqrt(((dz(T_full)/T_full)**2 - (dz(T0)/T0)**2)**2)" 
 
     def _set_parameters(self):
+        """ Sets atmospheric fields and parameters as problem parameters """
         for k, fd in self.atmosphere.atmo_fields.items():
             self.de_problem.problem.parameters[k] = fd
             fd.set_scales(1, keep_data=True)
@@ -279,15 +314,15 @@ class FullyCompressibleEquations(Equations):
 
 class KappaMuFCE(FullyCompressibleEquations):
     '''
-    An extension of the fully compressible equations where the diffusivities are
-    set based on kappa and mu, not chi and nu.
+    An extension of the fully compressible equations where the diffusivities have 
+    constant dynamic diffusivities (kappa and mu), and nonconstant diffusivities (chi and nu).
     '''
 
     def __init__(self, *args, **kwargs):
         super(KappaMuFCE, self).__init__(*args, **kwargs)
 
     def _set_diffusion_subs(self):
-        """ Assumes chi0 = k / rho0 """
+        """ Sets substitutions for diffusivities, viscous terms, and energy equation diffusiton terms """
         self.de_problem.problem.substitutions['kappa_full']   = '(rho0*chi0)'
         self.de_problem.problem.substitutions['kappa_full_z'] = '(0)'
         self.de_problem.problem.substitutions['kappa_fluc']   = '(0)'
@@ -297,35 +332,38 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['mu_fluc']      = '(0)'
         self.de_problem.problem.substitutions['nu']           = '(nu0*exp(-ln_rho1))'
 
-        self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
-        self.de_problem.problem.substitutions['scale_m']    = '(T0)'
-        self.de_problem.problem.substitutions['scale_e']    = '(T0)'
-        self.de_problem.problem.substitutions['scale_c']    = '(T0)'
 
-
-        #Viscous subs -- momentum equation     
         self.de_problem.problem.substitutions['visc_u']   = "( (mu_full)*(Lap(u, u_z) + 1/3*Div(dx(u), dx(v), dx(w_z))) + (mu_full_z)*(Sig_xz))"
         self.de_problem.problem.substitutions['visc_v']   = "( (mu_full)*(Lap(v, v_z) + 1/3*Div(dy(u), dy(v), dy(w_z))) + (mu_full_z)*(Sig_yz))"
         self.de_problem.problem.substitutions['visc_w']   = "( (mu_full)*(Lap(w, w_z) + 1/3*Div(  u_z, dz(v), dz(w_z))) + (mu_full_z)*(Sig_zz))"                
-#        self.de_problem.problem.substitutions['L_visc_u'] = "(visc_u/rho0)"
-#        self.de_problem.problem.substitutions['L_visc_v'] = "(visc_v/rho0)"
-#        self.de_problem.problem.substitutions['L_visc_w'] = "(visc_w/rho0)"                
-        self.de_problem.problem.substitutions['L_visc_u'] = "(visc_u/T0)"
-        self.de_problem.problem.substitutions['L_visc_v'] = "(visc_v/T0)"
-        self.de_problem.problem.substitutions['L_visc_w'] = "(visc_w/T0)"                
-        self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - (L_visc_u))"
-        self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - (L_visc_v))"
-        self.de_problem.problem.substitutions['R_visc_w'] = "(visc_w/rho_full - (L_visc_w))"
-
-
-
-
         self.de_problem.problem.substitutions['thermal'] = ('( ((1/Cv))*(kappa_full*Lap(T1, T1_z) + kappa_full_z*T1_z) )')
-#        self.de_problem.problem.substitutions['L_thermal'] = ('thermal/rho0')
-        self.de_problem.problem.substitutions['L_thermal'] = ('thermal/T0')
-        self.de_problem.problem.substitutions['R_thermal'] = ('( thermal/rho_full - (L_thermal) + ((1/Cv)/(rho_full))*(kappa_full*T0_zz + kappa_full_z*T0_z) )' )
+
+        self.de_problem.problem.substitutions['scale_c']    = '(T0)'
+        if type(self.atmosphere) is Polytrope: #Makes polytropes a low bandwidth problem
+            self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
+            self.de_problem.problem.substitutions['scale_m']    = '(T0)'
+            self.de_problem.problem.substitutions['scale_e']    = '(T0)'
+
+            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u/T0)"
+            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v/T0)"
+            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w/T0)"                
+            self.de_problem.problem.substitutions['L_thermal'] = "(thermal/T0)"
+        else:
+            self.de_problem.problem.parameters['scale_m_z']  = 1
+            self.de_problem.problem.parameters['scale_m']    = 1
+            self.de_problem.problem.parameters['scale_e']    = 1
+
+            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u/rho0)"
+            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v/rho0)"
+            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w/rho0)"                
+            self.de_problem.problem.substitutions['L_thermal'] = "(thermal/rho0)"
+
+        self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - L_visc_u)"
+        self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - L_visc_v)"
+        self.de_problem.problem.substitutions['R_visc_w'] = "(visc_w/rho_full - L_visc_w)"
+        self.de_problem.problem.substitutions['R_thermal'] = ('( (thermal/rho_full - L_thermal) + ((1/Cv)/(rho_full))*(kappa_full*T0_zz) )' )
+
         self.de_problem.problem.substitutions['source_terms'] = '0'
-        #Viscous heating
         self.de_problem.problem.substitutions['R_visc_heat']  = " (mu_full/rho_full*(1/Cv))*(dx(u)*Sig_xx + dy(v)*Sig_yy + w_z*Sig_zz + Sig_xy**2 + Sig_xz**2 + Sig_yz**2)"
 
         #Fixed-flux BC. LHS = RHS at boundary. L = left (lower). R = right (upper)
@@ -338,6 +376,9 @@ class KappaMuFCE(FullyCompressibleEquations):
 
 
 class AEKappaMuFCE(Equations):
+    """
+    Accelerated Evolution equations in a Kappa/Mu formulation. WIP.
+    """
 
     def __init__(self, thermal_BC_dict, avg_field_dict, *args, ncc_cutoff=1e-10, kx=0, ky=0):
         #Needs these parameters:

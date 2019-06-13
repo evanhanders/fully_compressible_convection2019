@@ -51,7 +51,7 @@ def name_case(input_dict):
 
     FC_poly_Ra{0}_Pr{1}_n{2}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}{10}
 
-    where the numbers here are:
+    which is the name of the output directory, and where the numbers here are:
     {0}     - Rayleigh number
     {1}     - Prandtl number
     {2}     - n_rho, number of density scale heights
@@ -68,7 +68,6 @@ def name_case(input_dict):
     ----------
     input_dict   : dict
         A dictionary of strings whose keys are all of the options specified above in the FC_poly.py docstring
-
     """
     import sys
     # save data in directory named after script

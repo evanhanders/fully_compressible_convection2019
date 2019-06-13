@@ -9,8 +9,8 @@ from dedalus.core.field import Field
 
 class DedalusDomain:
     """
-    A simple class which contains a dedalus domain, as well as a bunch of info about
-    the domain, for use in broad functions.
+    A simple class which contains a cartesian dedalus domain, as well as a bunch of info about
+    the domain, for use in broad functions. 
 
     Attributes:
     -----------
@@ -118,6 +118,18 @@ class DedalusDomain:
         return field
 
     def generate_vertical_profile(self, field, scales=1):
+        """ 
+        Communicates a 1D field's vertical grid data across all processes.
+        Assumes the field has no horizontal variation, so this function is generally good
+        for initial conditions, etc.
+
+        Parameters:
+        -----------
+            field : A Dedalus Field object, or Numpy array whose shape matches those of a local field.
+                The local portion of a field or NumPy array whose global data is desired
+            scales : float
+                The scales of the Dedalus field's grid data
+        """
         gslices = self.domain.dist.grid_layout.slices(scales=scales)
         global_array = np.zeros(int(scales*self.nz))
         local_array  = np.zeros_like(global_array)

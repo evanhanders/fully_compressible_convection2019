@@ -38,6 +38,8 @@ class DedalusProblem():
         A list of strings containing the names of dedalus problem variables
     solver       : A solver object, from the Dedalus package.
         The solver for the problem.
+    problem : Dedalus Problem object
+        The problem that this class controls
     problem_type : string
         Specifies the type of problem being solved ('IVP', 'EVP', etc.)
     """
@@ -47,6 +49,7 @@ class DedalusProblem():
         """
         self.de_domain      = de_domain
         self.variables      = variables
+        self.problem        = None
         self.problem_type   = None
         self.solver         = None
         return
@@ -68,6 +71,10 @@ class DedalusIVP(DedalusProblem):
     """
     An extension of the DedalusProblem class with some important functionality for 
     initial value problems.
+
+    Attributes:
+    -----------
+
     """
 
     def __init__(self, *args, **kwargs):
@@ -116,6 +123,10 @@ class DedalusIVP(DedalusProblem):
             The parent directory of output files
         analysis_tasks      : OrderedDict()
             An OrderedDict of dedalus FileHandler objects
+        task_args, task_kwargs : list, dict, optional
+            arguments & keyword arguments to the self._special_tasks() function
+        pre_loop_args, pre_loop_kwargs: list, dict, optional
+            arguments & keyword arguments to the self.pre_loop_setup() function
         time_div            : float, optional
             A siulation time to divide the normal time by for easier output tracking
         threeD              : bool, optional
@@ -235,7 +246,7 @@ class DedalusIVP(DedalusProblem):
 class DedalusNLBVP(DedalusProblem):
     """
     An extension of the DedalusProblem class with some important functionality for 
-    initial value problems.
+    nonlinear boundary value problems.
     """
 
     def __init__(self, *args, **kwargs):
@@ -270,6 +281,7 @@ class DedalusNLBVP(DedalusProblem):
 class AcceleratedEvolutionIVP(DedalusIVP):
     """
     Solves an IVP using BVPs to accelerate the evolution of the IVP, as in Anders, Brown, & Oishi 2018 PRFluids.
+    Not well documented, WIP.
     """
 
     def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2):
@@ -345,7 +357,8 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         return avg_fields
 
 class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
-
+    """ For Accelerated Evolution, 
+    Not well documented, WIP. """
     def condition_flux(self, avg_fields, thermal_BC_dict):
         Fconv_in = avg_fields['F_conv']
         F_tot_in = avg_fields['F_tot_superad']

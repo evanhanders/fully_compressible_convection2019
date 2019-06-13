@@ -11,62 +11,55 @@ except:
 
 class CompressibleConvection:
     """
-    A class that sets all important parameters of a simple compressible convection problem.
+    A class that sets up important parameters of a compressible convection problem, and
+    which sets initial conditions for that problem.
+
+    Attributes:
+    -----------
+    de_domain : DedalusDomain
+        contains info about the Domain in which the experiment is conducted
+    atmosphere : IdealGasAtmosphere or other Atmosphere class
+        contains info about the atmosphere in which convection occurs.
     """
 
-    def __init__(self, de_domain, atmosphere, Ra, Pr, **kwargs):
+    def __init__(self, de_domain, atmosphere, *args, **kwargs):
         """ Initializes the convective experiment.
 
         Parameters
         ----------
-        de_domain       : A DedalusDomain object
-            Contains info about the dedalus domain
-        kwargs          : Dictionary
-            Additional keyword arguments for the BoussinesqConvection._set_parameters function
+        de_domain, atmosphere -- see class-level docstring
+        args, kwargs : list, dictionary
+            Additional arguments & keyword arguments for the self._set_diffusivities function
         """
         self.de_domain  = de_domain
         self.atmosphere = atmosphere
         self._set_diffusivities(Ra, Pr, **kwargs)
         return
 
-    def _set_diffusivities(self, Ra, Pr, const_diffs=False):
+    def _set_diffusivities(self, Ra, Pr, **kwargs):
         """
-        Set up important parameters of the problem for boussinesq convection. 
+        Sets up domain diffusivities.
 
         Parameters
         ----------
-        Rayleigh        : Float 
-            The Rayleigh number, as defined in Anders, Brown, Oishi 2018 and elsewhere
-        Prandtl         : Float
-            The Prandtl number, viscous / thermal diffusivity
-        IH              : bool
-            If True, internally heated convection. If false, boundary-driven convection.
-
+        Ra  : float
+            The Rayleigh number at the top of the domain
+        Pr  : float
+            The Prandtl number at the top of the domain
         """
         Lz, delta_s, Cp, g = [self.atmosphere.atmo_params[k] for k in ('Lz', 'delta_s', 'Cp', 'g')]
         nu_top  = np.sqrt(Pr * g * Lz**3 * np.abs(delta_s/Cp) / Ra)
         chi_top = nu_top/Pr
+        self.atmosphere.set_diffusivites(chi_top, nu_top, **kwargs)
 
-        if const_diffs:
-            self.atmosphere.atmo_params['chi0'] = chi_top
-            self.atmosphere.atmo_params['nu0']  = nu_top
-            t_therm = Lz**2/chi_top
-        else:
-            self.atmosphere.atmo_fields['chi0']['g'] = chi_top/self.atmosphere.atmo_fields['rho0']['g']
-            self.atmosphere.atmo_fields['nu0']['g']  =  nu_top/self.atmosphere.atmo_fields['rho0']['g']
-            t_therm = Lz**2/np.mean(self.atmosphere.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
-            [self.atmosphere.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
-        self.atmosphere.atmo_params['t_therm'] = t_therm
-        logger.info('Experiment set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
-        logger.info('Experimental t_therm/t_buoy = {:.2e}'.format(t_therm/self.atmosphere.atmo_params['t_buoy']))
-
-    def set_IC(self, solver, noise_scale, checkpoint, A0=1e-6, restart=None, checkpoint_dt=1800, overwrite=False, **kwargs):
+    def set_IC(self, solver, noise_scale, checkpoint, A0=1e-6, restart=None, checkpoint_dt=None, overwrite=False, **kwargs):
         """
-        Set initial conditions as random noise in the temperature perturbations, tapered to
-        zero at the boundaries.  
+        Set initial conditions as entropy perturbations which are random noise and tapered to match boundary conditions.
 
         Parameters
         ----------
+        solver  : Dedalus solver object
+            The solver in which the problem is being solved.
         noise_scale     : NumPy array, size matches local dealiased z-grid.
             The scale of expected thermo pertrubations in the problem (epsilon)
         checkpoint      : A Checkpoint object
@@ -75,13 +68,12 @@ class CompressibleConvection:
             The size of the initial perturbation compared to noise_scale. Generally should be very small.
         restart         : String, optional
             If not None, the path to the checkpoint file to restart the simulation from.
-        checkpoint_dt   : Int, optional
-            The amount of wall time, in seconds, between checkpoints (default 30 min)
+        checkpoint_dt   : float, optional
+            The amount of simulation time between checkpoints
         overwrite       : Bool, optional
             If True, auto-set the file mode to overwrite, even if checkpoint-restarting
         kwargs          : Dict, optional
             Additional keyword arguments for the global_noise() function
-
         """
         if restart is None:
             # initial conditions
@@ -109,5 +101,6 @@ class CompressibleConvection:
                 mode = 'overwrite'
             else:
                 mode = 'append'
+        if checkpoint_dt is None: checkpoint_dt = 25*self.atmosphere.atmo_fields['t_buoy']
         checkpoint.set_checkpoint(solver, sim_dt=checkpoint_dt, mode=mode)
         return dt, mode
