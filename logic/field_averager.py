@@ -106,14 +106,17 @@ class FieldAverager:
     def save_file(self):
         """  Saves profiles dict to file """
         z_profile = self.local_to_global_average(self.de_domain_IVP.z.flatten())
+        profiles = OrderedDict()
+        for k, item in self.avg_profiles.items():
+            profiles[k] = self.local_to_global_average(item/self.elapsed_avg_time)
 
         if self.rank == 0:
             file_name = self.file_dir + "profile_dict_file_{:04d}.h5".format(self.n_files_saved+1)
             with h5py.File(file_name, 'w') as f:
-                for k, item in self.avg_profiles.items():
-                    f[k] = self.local_to_global_average(item/self.elapsed_avg_time)
+                for k, item in profiles.items():
+                    f[k] = item
                 f['z'] = z_profile 
-            self.n_files_saved += 1
+        self.n_files_saved += 1
 
     def reset_fields(self):
         """ Reset all local fields after doing a BVP """
