@@ -32,7 +32,7 @@ if not isinstance(avg_start_time, type(None)):
 start_file = int(args['--start_file'])
 n_files = int(args['--n_files'])
 dpi=int(args['--dpi'])
-no_avg=args['--no_avg']
+no_avg=True#args['--no_avg']
 
 fig_dims = (float(args['--fig_width']), float(args['--fig_height']))
 

@@ -37,9 +37,9 @@ if isinstance(root_dir, type(None)):
 
 plotter = ProfileBuddy(root_dir, avg_writes=float(args['--avg_writes']), n_files=n_files, start_file=start_file)
 
-fluxes = ['enth_flux', 'kappa_flux']
+fluxes = ['F_cond_fluc_z', 'enth_flux_z', 'PE_flux_z', 'KE_flux_z', 'viscous_flux_z']
 [plotter.track_profile(s) for s in fluxes]
-fields = ['Tz', 'T', 'enstrophy', 'Re']
+fields = ['T1', 'enstrophy', 'Re_rms']
 for f in fields:
     plotter.track_profile(f)
 plotter.pull_tracked_profiles()

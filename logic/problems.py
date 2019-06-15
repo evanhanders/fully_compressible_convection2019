@@ -284,7 +284,36 @@ class AcceleratedEvolutionIVP(DedalusIVP):
     Not well documented, WIP.
     """
 
-    def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2):
+    def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, 
+                             ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2):
+        """
+        Sets up AE routines before the main IVP loop.
+
+        Arguments:
+        ----------
+            averager_classes :  list of FieldAverager classes
+                The averagers to keep track of during AE process.
+            convergence_averager : list of bools
+                For each averager, if True, use that averager to check if AE is converged.
+            root_dir : string
+                root output directory
+            atmo_kwargs : dict
+                dictionary of keyword arguments used in creation of atmosphere class
+            experiment_class : Experiment class
+                The class type of the convection experiment being run
+            experiment_args : tuple
+                Arguments for experiment creation, aside from domain and atmosphere
+            experiment_kwargs : dict
+                Keyword arguments for experiment creation
+            ae_convergence : float, optional
+                Fractional convergence of T1 change at which AE stops
+            sim_time_start : float, optional
+                Amount of sim time to wait to start taking averages
+            min_bvp_time : float, optional
+                Minimum sim time over which to take averages
+            bvp_threshold : float, optional
+                Starting convergence threshold required for BVP profiles. Decreases with each AE iteration.
+        """
         self.ae_convergence = ae_convergence
         self.bvp_threshold = bvp_threshold
         self.min_bvp_time   = min_bvp_time
@@ -306,6 +335,10 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         self.flow.add_property('Pe_rms', name='Pe')
 
     def check_averager_convergence(self):
+        """
+        For each averager in self.averagers which is being tracked for convergence criterion,
+        check if its fields have converged below the bvp threshold for AE.
+        """
         if (self.solver.sim_time  - self.sim_time_start) > self.min_bvp_time:
             for conv, averager in self.averagers:
                 if not conv: continue
@@ -321,12 +354,17 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         
 
     def special_tasks(self, thermal_BC_dict):
-        if self.flow.grid_average('Pe') < 1:
+        """
+        Logic for AE performed every loop iteration
+        """
+        # Don't do anything AE related if Pe < 1
+        if self.flow.grid_average('Pe') < 1 and not self.Pe_switch:
             return 
         elif not self.Pe_switch:
             self.sim_time_start += self.solver.sim_time
             self.Pe_switch = True
 
+        #If first averaging iteration, reset stuff properly 
         first = False
         if not self.doing_ae and not self.finished_ae and self.solver.sim_time >= self.sim_time_start:
             for conv, averager in self.averagers:
@@ -334,16 +372,15 @@ class AcceleratedEvolutionIVP(DedalusIVP):
             self.doing_ae = True
             first = True
 
+
         if self.doing_ae:
             for conv, averager in self.averagers:
                 averager.update_avgs()
-
-            if first:
-               return 
+            if first: return 
 
             do_AE = self.check_averager_convergence()
-
             if do_AE:
+                #Get averages from global domain
                 avg_fields = OrderedDict()
                 for conv, averager in self.averagers:
                     for k, prof in averager.avg_profiles.items():
@@ -351,6 +388,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     averager.save_file()
                 avg_fields = self.condition_flux(avg_fields, thermal_BC_dict)
 
+                #Solve BVP
                 if self.de_domain.domain.dist.comm_cart.rank == 0:
                     de_problem = DedalusNLBVP(self.AE_domain)
                     equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.AE_atmo, self.AE_domain, de_problem)
@@ -358,13 +396,24 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     de_problem.solve_BVP()
                 else:
                     de_problem = None
+
                 ae_structure = self.local_to_global_ae(de_problem)
+                if self.de_domain.domain.dist.comm_cart.rank == 0:
+                    import matplotlib
+                    matplotlib.use('Agg')
+                    import matplotlib.pyplot as plt
+                    plt.axhline(0, c='k')
+                    F_avail = avg_fields['F_tot_superad'] * avg_fields['Xi']
+                    plt.plot(F_avail - avg_fields['kappa']*ae_structure['T1_z'], label='ae flux')
+                    plt.plot(avg_fields['Xi']*avg_fields['F_conv'], label='Fconv_in * xi')
+                    plt.legend(loc='best')
+                    plt.savefig('flux_out_ae.png')
+                    plt.close()
 
                 # Update fields appropriately
                 diff = self.update_simulation_fields(ae_structure, avg_fields)
                 
                 #communicate diff
-
                 if diff < self.ae_convergence: self.finished_ae = True
                 logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
                 self.doing_ae = False
@@ -372,18 +421,29 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 self.bvp_threshold /= 1.5
 
     def update_simulation_fields(self, de_problem):
+        """ Updates simulation solver states """
         pass
     
     def local_to_global_ae(self, de_problem):
+        """ Communicate results of AE solve from process 0 to all """
         pass
 
     def condition_flux(self, avg_fields):
+        """ Condition fluxes for solve, if appropriate """
         return avg_fields
 
 class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
     """ For Accelerated Evolution, 
     Not well documented, WIP. """
+
+    def pre_loop_setup(self, *args, **kwargs):
+        """ Extends parent class pre loop setup, keeps track of important thermo avgs """
+        super(FCAcceleratedEvolutionIVP, self).pre_loop_setup(*args, **kwargs)
+        self.flow.add_property("plane_avg(T1)", name='T1_avg')
+        self.flow.add_property("plane_avg(ln_rho1)", name='ln_rho1_avg')
+
     def condition_flux(self, avg_fields, thermal_BC_dict):
+        """ Calculate Xi = F_available / F_total_superadiabatic for AE """
         Fconv_in = avg_fields['F_conv']
         F_tot_in = avg_fields['F_tot_superad']
         kappa    = avg_fields['kappa']
@@ -391,70 +451,88 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
             F_avail  = -np.mean(kappa[0] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=0)['g']-self.AE_atmo.atmo_params['T_ad_z']))
         elif thermal_BC_dict['temp_flux']:
             Lz = self.AE_atmo.atmo_params['Lz']
-            F_avail  = -np.mean(kappa[0] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z']))
+            F_avail  = -np.mean(kappa[-1] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z']))
         xi = F_avail/F_tot_in
         avg_fields['Xi'] = xi
         return avg_fields
 
     def local_to_global_ae(self, de_problem):
+        """ Communicates AE solve info from process 0 to all processes """
         ae_profiles = OrderedDict()
         ae_profiles['T1'] = np.zeros(self.de_domain.resolution[0])
+        ae_profiles['T1_z'] = np.zeros(self.de_domain.resolution[0])
         ae_profiles['ln_rho1'] = np.zeros(self.de_domain.resolution[0])
         full = np.zeros(self.de_domain.resolution[0])
 
         if self.de_domain.domain.dist.comm_cart.rank == 0:
             T1 = de_problem.solver.state['T1']
+            T1_z = de_problem.solver.state['T1_z']
             ln_rho1 = de_problem.solver.state['ln_rho1']
             T1.set_scales(1, keep_data=True)
+            T1_z.set_scales(1, keep_data=True)
             ln_rho1.set_scales(1, keep_data=True)
-            ae_profiles['T1'][:] = T1['g'].flatten()
-            ae_profiles['ln_rho1'][:] = ln_rho1['g'].flatten()
+            ae_profiles['T1'] = T1['g']
+            ae_profiles['T1_z'] = T1_z['g']
+            ae_profiles['ln_rho1'] = ln_rho1['g']
 
         self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1'], full, op=MPI.SUM)
-        ae_profiles['T1'] = full
+        ae_profiles['T1'][:] = full*1.
+        full *= 0
+        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1_z'], full, op=MPI.SUM)
+        ae_profiles['T1_z'][:] = full*1.
         full *= 0
         self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['ln_rho1'], full, op=MPI.SUM)
-        ae_profiles['ln_rho1'] = full
+        ae_profiles['ln_rho1'][:] = full*1.
         return ae_profiles
         
     def update_simulation_fields(self, ae_profiles, avg_fields):
+        """ Updates T1, T1_z, ln_rho1 with AE profiles """
         my_range = (self.averagers[0][1].nz_per_proc*self.z_rank,
                    self.averagers[0][1].nz_per_proc*(1+self.z_rank))
 
+
+        thermo_scaling = avg_fields['Xi']**(1./4)
+        u_scaling = avg_fields['Xi']**(1./2)
+
         #Calculate instantaneous thermo profiles
+        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'ln_rho1_avg')]
+        T1_prof = self.flow.properties['T1_avg']['g']
+        ln_rho_prof = self.flow.properties['ln_rho1_avg']['g']
+
         T1 = self.solver.state['T1']
-        T1.set_scales(1, keep_data=True)
-        T1_prof = np.mean(T1['g'], axis=0)
-
         ln_rho1 = self.solver.state['ln_rho1']
-        ln_rho1.set_scales(1, keep_data=True)
-        ln_rho_prof = np.mean(ln_rho1['g'], axis=0) 
-
-        if self.de_domain.dimensions == 3:
-            T1_prof = np.mean(T1_prof, axis=0)
-            ln_rho_prof = np.mean(ln_rho_prof, axis=0)
-
         #Adjust Temp
         T1.set_scales(1, keep_data=True)
-        T1['g'] += ae_profiles['T1'][my_range[0]:my_range[1]] - T1_prof
+        T1['g'] -= T1_prof
         T1.set_scales(1, keep_data=True)
+        T1['g'] *= thermo_scaling[my_range[0]:my_range[1]]
+        T1.set_scales(1, keep_data=True)
+        T1['g'] += ae_profiles['T1'][my_range[0]:my_range[1]]
         T1.differentiate('z', out=self.solver.state['T1_z'])
 
         #Adjust lnrho
+        self.AE_atmo.atmo_fields['rho0'].set_scales(1, keep_data=True)
+        rho0 = self.AE_atmo.atmo_fields['rho0']['g'][my_range[0]:my_range[1]]
         ln_rho1.set_scales(1, keep_data=True)
-        ln_rho1['g'] += ae_profiles['ln_rho1'][my_range[0]:my_range[1]] - ln_rho_prof
+        rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - np.exp(ln_rho_prof))
+        rho_full_flucs *= thermo_scaling[my_range[0]:my_range[1]]
+        rho_full_new = rho_full_flucs + rho0*np.exp(ae_profiles['ln_rho1'])[my_range[0]:my_range[1]]
         ln_rho1.set_scales(1, keep_data=True)
+        ln_rho1['g']  = np.log(rho_full_new/rho0)
+        ln_rho1.set_scales(1, keep_data=True)
+
+
+        vel_fields = ['u', 'w']
+        if self.de_domain.dimensions == 3:
+            vel_vields.append('v')
+        for k in vel_fields:
+            self.solver.state[k].set_scales(1, keep_data=True)
+            self.solver.state[k]['g'] *= u_scaling[my_range[0]:my_range[1]]
+            self.solver.state[k].set_scales(1, keep_data=True)
 
         # % diff, normalized by epsilon, basically
         self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
         T0 = self.AE_atmo.atmo_fields['T0']['g']
-
-        diff = (1 - (T0 + ae_profiles['T1'])[my_range[0]:my_range[1]]/(T0[my_range[0]:my_range[1]] + T1_prof)) / np.max(np.abs(T1_prof))
-
-        local_max = np.zeros(1)
-        global_max = np.zeros(1)
-        local_max[0] = np.max(np.abs(diff))
-        self.de_domain.domain.dist.comm_cart.Allreduce(local_max, global_max, op=MPI.MAX)
-
-        return global_max[0]
+        diff = (1 - avg_fields['Xi'])
+        return np.abs(diff).max()
         

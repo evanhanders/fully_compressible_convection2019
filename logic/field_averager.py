@@ -22,6 +22,20 @@ class FieldAverager:
     OUT_DIR = 'averager'
 
     def __init__(self, solver_IVP, de_domain_IVP, root_dir, file_dir=None):
+        """
+        Initialize the FieldAverager.
+
+        Arguments:
+        ----------
+            solver_IVP : Dedalus Solver object 
+                The solver from the IVP in which averages are being taken
+            de_domain_IVP : DedalusDomain object
+                The domain on which the IVP is being solved
+            root_dir : string
+                Root output directory
+            file_dir : string, optional
+                Output average files to root_dir/file_dir. If None, output to root_dir/OUT_DIR.
+        """
         
         self.solver_IVP    = solver_IVP
         self.de_domain_IVP = de_domain_IVP
@@ -53,6 +67,14 @@ class FieldAverager:
 
 
     def get_local_profile(self, prof_name):
+        """
+        Grabs one of the local flow tracker's profiles. Assumes no horizontal variation of profile.
+
+        Arguments:
+        ----------
+            prof_name: string
+                The name of the profile to grab.
+        """
         this_field = self.flow.properties['{}'.format(prof_name)]['g']
         if self.de_domain_IVP.dimensions == 3:
             profile = this_field[0,0,:]
@@ -61,6 +83,14 @@ class FieldAverager:
         return profile
 
     def local_to_global_average(self, profile):
+        """
+        Given the local piece of a dedalus z-profile, find the global z-profile.
+
+        Arguments:
+        ----------
+            profile : NumPy array
+                contains the local piece of the profile
+        """
         loc, glob = [np.zeros(self.de_domain_IVP.resolution[0]) for i in range(2)]
         if len(self.de_domain_IVP.domain.dist.mesh) == 0:
             loc[self.nz_per_proc*self.rank:self.nz_per_proc*(self.rank+1)] = profile 
@@ -70,6 +100,14 @@ class FieldAverager:
         return glob
 
     def find_global_max(self, profile):
+        """
+        Given a local piece of a global profile, find the global maximum.
+
+        Arguments:
+        ----------
+            profile : NumPy array
+                contains the local piece of a profile
+        """
         loc, glob = [np.zeros(1) for i in range(2)]
         if len(self.de_domain_IVP.domain.dist.mesh) == 0:
             loc[0] = np.max(profile)
@@ -79,6 +117,9 @@ class FieldAverager:
         return glob[0]
             
     def update_avgs(self):
+        """
+        Updates the averages of z-profiles. To be called every timestep.
+        """
         first = False
 
         #Times
