@@ -409,6 +409,10 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     plt.legend(loc='best')
                     plt.savefig('flux_out_ae.png')
                     plt.close()
+                    plt.plot(avg_fields['Xi'])
+                    plt.ylabel('xi')
+                    plt.savefig('xi.png')
+                    plt.close()
 
                 # Update fields appropriately
                 diff = self.update_simulation_fields(ae_structure, avg_fields)
@@ -418,7 +422,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
                 self.doing_ae = False
                 self.sim_time_start = self.solver.sim_time + self.sim_time_wait
-                self.bvp_threshold /= 1.5
+                self.bvp_threshold /= 10**(1./4)
 
     def update_simulation_fields(self, de_problem):
         """ Updates simulation solver states """
@@ -491,7 +495,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
                    self.averagers[0][1].nz_per_proc*(1+self.z_rank))
 
 
-        thermo_scaling = avg_fields['Xi']**(1./4)
+        thermo_scaling = avg_fields['Xi']**(1./2)
         u_scaling = avg_fields['Xi']**(1./2)
 
         #Calculate instantaneous thermo profiles
@@ -528,11 +532,12 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         for k in vel_fields:
             self.solver.state[k].set_scales(1, keep_data=True)
             self.solver.state[k]['g'] *= u_scaling[my_range[0]:my_range[1]]
+            self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
             self.solver.state[k].set_scales(1, keep_data=True)
+            self.solver.state['{:s}_z'.format(k)].set_scales(1, keep_data=True)
 
-        # % diff, normalized by epsilon, basically
-        self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
-        T0 = self.AE_atmo.atmo_fields['T0']['g']
-        diff = (1 - avg_fields['Xi'])
-        return np.abs(diff).max()
+        # % diff from ln_rho1. Would do T1, but T1 = 0 boundaries make it hard.
+        diff = (1 - (np.exp(avg_fields['ln_rho1'])-1)/(np.exp(ae_profiles['ln_rho1'])-1))
+        print((np.exp(avg_fields['ln_rho1'])-1)/(np.exp(ae_profiles['ln_rho1'])-1))
+        return np.mean(np.abs(diff))
         

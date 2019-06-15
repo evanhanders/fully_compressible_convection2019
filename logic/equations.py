@@ -411,9 +411,6 @@ class AEKappaMuFCE(Equations):
         """
         self.de_problem.problem.substitutions['AE_rho_full'] = '(rho0* exp(ln_rho1))'
         self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
-        self.de_problem.problem.substitutions['w'] = '(sqrt(Xi)*w_prof_IVP)'
-        self.de_problem.problem.substitutions['mod_udotgradW'] = '((Xi*udotgradW_horiz) + w * dz(w) )'
-        self.de_problem.problem.substitutions['mod_viscous']   = ('(mu/AE_rho_full) * ( (4./3.)*dz(dz(w)))')
         self.de_problem.problem.substitutions['F_superad_initial'] = '-kappa*(T0_z - T_ad_z)'
 
         logger.debug('setting T1_z eqn')
@@ -423,11 +420,12 @@ class AEKappaMuFCE(Equations):
         self.de_problem.problem.add_equation("dz(M1) = AE_rho_fluc")
 
         logger.debug('Setting energy equation')
-        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv + F_superad_initial)"))# - F_superad_initial)"))
+        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv)")) #no change in flux from initial state
+#        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv + F_superad_initial)"))# - F_superad_initial)"))
         
         logger.debug('Setting HS equation')
         self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
-                              "-T1 * dz(ln_rho1) - mod_udotgradW + mod_viscous "))
+                              "-T1 * dz(ln_rho1) - Xi*log(Xi)*T1_dzlnrho1_fluc - Xi**2*udotgradW + Xi*viscous_w "))
         
     def _set_BCs(self, thermal_BC_dict):
         """ 
@@ -451,10 +449,10 @@ class AEKappaMuFCE(Equations):
         for key in ['T1', 'T1_z', 'M1']:
             self.de_problem.problem.meta[key]['z']['dirichlet'] = True
 
-    def _set_parameters(self, field_averager):
-        for k in ['Xi', 'w_prof_IVP', 'udotgradW_horiz', 'mu', 'F_conv', 'kappa']:
+    def _set_parameters(self, field_dict):
+        for k in ['Xi', 'udotgradW', 'T1_dzlnrho1_fluc', 'viscous_w', 'kappa', 'F_conv']:
             this_field = self.de_domain.new_ncc()
-            this_field['g'] = field_averager[k]
+            this_field['g'] = field_dict[k]
             self.de_problem.problem.parameters[k] = this_field 
         for k, fd in self.atmosphere.atmo_fields.items():
             self.de_problem.problem.parameters[k] = fd

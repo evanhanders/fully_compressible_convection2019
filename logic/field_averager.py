@@ -172,15 +172,22 @@ class FieldAverager:
 class AveragerFCAE(FieldAverager):
 
     FIELDS = OrderedDict([
-                        ('F_conv',          'F_conv_z'),
-                        ('F_tot_superad',   '(F_conv_z + F_cond_z - F_cond_ad_z)'),
-                        ('udotgradW_horiz', '(u*dx(w) + v*dy(w))'),
-                        ('w_prof_IVP',      'w'),
+                        ('F_conv',              'F_conv_z'),
+                        ('F_tot_superad',       '(F_conv_z + F_cond_z - F_cond_ad_z)'),
+                        ('udotgradW',           '(UdotGrad(w, w_z))'),
+                        ('T1_dzlnrho1_fluc',    '((T1-plane_avg(T1))*dz(ln_rho1-plane_avg(ln_rho1)))'),
+                        ('viscous_w',           '(L_visc_w + R_visc_w)'),
+                            ])
+    OUT_DIR = 'averager_FCAE'
+
+class AveragerFCStructure(FieldAverager):
+
+    FIELDS = OrderedDict([
                         ('T1',              'T1'),
                         ('ln_rho1',         'ln_rho1'),
                         ('mu',              'mu_full'),
                         ('kappa',           'kappa_full'),
                             ])
-    OUT_DIR = 'averager_FCAE'
+    OUT_DIR = 'averager_FCStructure'
 
 

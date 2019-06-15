@@ -126,7 +126,7 @@ def FC_polytropic_convection(input_dict):
     from logic.equations     import KappaMuFCE
     from logic.outputs       import initialize_output
     from logic.checkpointing import Checkpoint
-    from logic.field_averager import AveragerFCAE
+    from logic.field_averager import AveragerFCAE, AveragerFCStructure
 
     import logging
     logger = logging.getLogger(__name__)
@@ -230,10 +230,26 @@ def FC_polytropic_convection(input_dict):
     # Solve the IVP.
     if args['--ae']:
         task_args = (thermal_BC,)
-        pre_loop_args = ((AveragerFCAE,), (True,), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
+        pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = {'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 'min_bvp_time' : 20*atmosphere.atmo_params['t_buoy'], 'ae_convergence' : 1e-2, 'bvp_threshold' : 1e-2}
-        de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, task_args=task_args, pre_loop_args=pre_loop_args, task_kwargs=task_kwargs, pre_loop_kwargs=pre_loop_kwargs, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
+        pre_loop_kwargs = { 'sim_time_start' : 30*atmosphere.atmo_params['t_buoy'], 
+                            'min_bvp_time' : 20*atmosphere.atmo_params['t_buoy'], 
+                            'ae_convergence' : 1e-2, 
+                            'bvp_threshold' : 1e-2
+                            }
+        solve_args = (dt, CFL, data_dir, analysis_tasks)
+        solve_kwargs = {    'task_args' : task_args,
+                            'pre_loop_args' : pre_loop_args,
+                            'task_kwargs' : task_kwargs,
+                            'pre_loop_kwargs' : pre_loop_kwargs,
+                            'time_div' : atmosphere.atmo_params['t_buoy'],
+                            'track_fields' : ['Pe_rms', 'dissipation'],
+                            'threeD' : threeD,
+                            'Hermitian_cadence' : 100,
+                            'no_join' : args['--no_join'],
+                            'mode' : mode
+                        }
+        de_problem.solve_IVP(*solve_args, **solve_kwargs)
     else:
         de_problem.solve_IVP(dt, CFL, data_dir, analysis_tasks, time_div=atmosphere.atmo_params['t_buoy'], track_fields=['Pe_rms', 'dissipation'], threeD=threeD, Hermitian_cadence=100, no_join=args['--no_join'], mode=mode)
 
