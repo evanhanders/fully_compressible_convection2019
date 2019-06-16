@@ -403,8 +403,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     matplotlib.use('Agg')
                     import matplotlib.pyplot as plt
                     plt.axhline(0, c='k')
-                    F_avail = avg_fields['F_tot_superad'] * avg_fields['Xi']
-                    plt.plot(F_avail - avg_fields['kappa']*ae_structure['T1_z'], label='ae flux')
+                    plt.plot(avg_fields['F_avail'] - avg_fields['kappa']*ae_structure['T1_z'], label='ae flux')
                     plt.plot(avg_fields['Xi']*avg_fields['F_conv'], label='Fconv_in * xi')
                     plt.legend(loc='best')
                     plt.savefig('flux_out_ae.png')
@@ -444,6 +443,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         """ Extends parent class pre loop setup, keeps track of important thermo avgs """
         super(FCAcceleratedEvolutionIVP, self).pre_loop_setup(*args, **kwargs)
         self.flow.add_property("plane_avg(T1)", name='T1_avg')
+        self.flow.add_property("plane_avg(T1_z)", name='T1_z_avg')
         self.flow.add_property("plane_avg(ln_rho1)", name='ln_rho1_avg')
 
     def condition_flux(self, avg_fields, thermal_BC_dict):
@@ -456,7 +456,9 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         elif thermal_BC_dict['temp_flux']:
             Lz = self.AE_atmo.atmo_params['Lz']
             F_avail  = -np.mean(kappa[-1] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z']))
-        xi = F_avail/F_tot_in
+        avg_fields['F_avail'] = F_avail
+        conv_frac = Fconv_in / F_tot_in
+        xi = conv_frac *  F_avail/F_tot_in
         avg_fields['Xi'] = xi
         return avg_fields
 
@@ -491,39 +493,59 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         
     def update_simulation_fields(self, ae_profiles, avg_fields):
         """ Updates T1, T1_z, ln_rho1 with AE profiles """
-        my_range = (self.averagers[0][1].nz_per_proc*self.z_rank,
-                   self.averagers[0][1].nz_per_proc*(1+self.z_rank))
 
+        z_slices = self.de_domain.domain.dist.grid_layout.slices(scales=1)[-1]
 
         thermo_scaling = avg_fields['Xi']**(1./2)
         u_scaling = avg_fields['Xi']**(1./2)
 
         #Calculate instantaneous thermo profiles
-        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'ln_rho1_avg')]
+        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg')]
         T1_prof = self.flow.properties['T1_avg']['g']
+        T1_z_prof = self.flow.properties['T1_z_avg']['g']
         ln_rho_prof = self.flow.properties['ln_rho1_avg']['g']
 
         T1 = self.solver.state['T1']
+        T1_z = self.solver.state['T1_z']
         ln_rho1 = self.solver.state['ln_rho1']
         #Adjust Temp
         T1.set_scales(1, keep_data=True)
         T1['g'] -= T1_prof
         T1.set_scales(1, keep_data=True)
-        T1['g'] *= thermo_scaling[my_range[0]:my_range[1]]
-        T1.set_scales(1, keep_data=True)
-        T1['g'] += ae_profiles['T1'][my_range[0]:my_range[1]]
-        T1.differentiate('z', out=self.solver.state['T1_z'])
+#        T1['g'] *= thermo_scaling[my_range[0]:my_range[1]]
+#        T1.set_scales(1, keep_data=True)
+        T1['g'] += ae_profiles['T1'][z_slices]
+#        T1.differentiate('z', out=self.solver.state['T1_z'])
+
+        T1_z.set_scales(1, keep_data=True)
+        T1_z['g'] -= T1_z_prof
+        T1_z.set_scales(1, keep_data=True)
+        T1_z['g'] += ae_profiles['T1_z'][z_slices]
+
+
+        print(z_slices, self.solver.state['T1_z']['g'][0,:], ae_profiles['T1_z'][z_slices])
+        print(z_slices, self.solver.state['T1']['g'][0,:], ae_profiles['T1'][z_slices])
+        import sys
+        sys.stdout.flush()
+            
 
         #Adjust lnrho
-        self.AE_atmo.atmo_fields['rho0'].set_scales(1, keep_data=True)
-        rho0 = self.AE_atmo.atmo_fields['rho0']['g'][my_range[0]:my_range[1]]
+#        self.AE_atmo.atmo_fields['rho0'].set_scales(1, keep_data=True)
+#        rho0 = self.AE_atmo.atmo_fields['rho0']['g'][my_range[0]:my_range[1]]
+#        ln_rho1.set_scales(1, keep_data=True)
+#        rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - np.exp(ln_rho_prof))
+#        rho_full_flucs *= thermo_scaling[my_range[0]:my_range[1]]
+#        rho_full_new = rho_full_flucs + rho0*np.exp(ae_profiles['ln_rho1'])[my_range[0]:my_range[1]]
+#        ln_rho1.set_scales(1, keep_data=True)
+#        ln_rho1['g']  = np.log(rho_full_new/rho0)
+#        ln_rho1.set_scales(1, keep_data=True)
+
         ln_rho1.set_scales(1, keep_data=True)
-        rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - np.exp(ln_rho_prof))
-        rho_full_flucs *= thermo_scaling[my_range[0]:my_range[1]]
-        rho_full_new = rho_full_flucs + rho0*np.exp(ae_profiles['ln_rho1'])[my_range[0]:my_range[1]]
+        ln_rho1['g'] -= ln_rho_prof
+#        ln_rho1['g'] -= avg_fields['ln_rho1'][z_slices]
         ln_rho1.set_scales(1, keep_data=True)
-        ln_rho1['g']  = np.log(rho_full_new/rho0)
-        ln_rho1.set_scales(1, keep_data=True)
+        ln_rho1['g'] += ae_profiles['ln_rho1'][z_slices]
+
 
 
         vel_fields = ['u', 'w']
@@ -531,13 +553,12 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
             vel_vields.append('v')
         for k in vel_fields:
             self.solver.state[k].set_scales(1, keep_data=True)
-            self.solver.state[k]['g'] *= u_scaling[my_range[0]:my_range[1]]
+            self.solver.state[k]['g'] *= u_scaling[z_slices]
             self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
             self.solver.state[k].set_scales(1, keep_data=True)
             self.solver.state['{:s}_z'.format(k)].set_scales(1, keep_data=True)
 
         # % diff from ln_rho1. Would do T1, but T1 = 0 boundaries make it hard.
         diff = (1 - (np.exp(avg_fields['ln_rho1'])-1)/(np.exp(ae_profiles['ln_rho1'])-1))
-        print((np.exp(avg_fields['ln_rho1'])-1)/(np.exp(ae_profiles['ln_rho1'])-1))
         return np.mean(np.abs(diff))
         

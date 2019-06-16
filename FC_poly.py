@@ -232,10 +232,10 @@ def FC_polytropic_convection(input_dict):
         task_args = (thermal_BC,)
         pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = { 'sim_time_start' : 30*atmosphere.atmo_params['t_buoy'], 
+        pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
                             'min_bvp_time' : 20*atmosphere.atmo_params['t_buoy'], 
                             'ae_convergence' : 1e-2, 
-                            'bvp_threshold' : 1e-2
+                            'bvp_threshold' : 1e-2 
                             }
         solve_args = (dt, CFL, data_dir, analysis_tasks)
         solve_kwargs = {    'task_args' : task_args,

@@ -425,7 +425,8 @@ class AEKappaMuFCE(Equations):
         
         logger.debug('Setting HS equation')
         self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
-                              "-T1 * dz(ln_rho1) - Xi*log(Xi)*T1_dzlnrho1_fluc - Xi**2*udotgradW + Xi*viscous_w "))
+                              "-T1 * dz(ln_rho1)"))
+#                              "-T1 * dz(ln_rho1) - Xi*log(Xi)*T1_dzlnrho1_fluc - Xi**2*udotgradW + Xi*viscous_w "))
         
     def _set_BCs(self, thermal_BC_dict):
         """ 
@@ -450,7 +451,7 @@ class AEKappaMuFCE(Equations):
             self.de_problem.problem.meta[key]['z']['dirichlet'] = True
 
     def _set_parameters(self, field_dict):
-        for k in ['Xi', 'udotgradW', 'T1_dzlnrho1_fluc', 'viscous_w', 'kappa', 'F_conv']:
+        for k in ['Xi', 'udotgradW', 'kappa', 'F_conv']:#, 'T1_dzlnrho1_fluc', 'viscous_w'
             this_field = self.de_domain.new_ncc()
             this_field['g'] = field_dict[k]
             self.de_problem.problem.parameters[k] = this_field 
