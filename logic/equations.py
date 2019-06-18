@@ -383,6 +383,7 @@ class AEKappaMuFCE(Equations):
     def __init__(self, thermal_BC_dict, avg_field_dict, *args, ncc_cutoff=1e-10, kx=0, ky=0):
         #Needs these parameters:
         super(AEKappaMuFCE, self).__init__(*args)
+#        variables = ['T1', 'T1_z', 'ln_rho1']
         variables = ['T1', 'T1_z', 'ln_rho1', 'M1']
 
         self.de_problem.set_variables(variables, ncc_cutoff=ncc_cutoff)
@@ -411,7 +412,9 @@ class AEKappaMuFCE(Equations):
         """
         self.de_problem.problem.substitutions['AE_rho_full'] = '(rho0* exp(ln_rho1))'
         self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
+        self.de_problem.problem.substitutions['P0'] = '(R*rho0*T0)'
         self.de_problem.problem.substitutions['F_superad_initial'] = '-kappa*(T0_z - T_ad_z)'
+        self.de_problem.problem.substitutions['Xi_mean'] = 'integ(Xi)/Lz'
 
         logger.debug('setting T1_z eqn')
         self.de_problem.problem.add_equation("dz(T1) - T1_z = 0")
@@ -424,9 +427,12 @@ class AEKappaMuFCE(Equations):
 #        self.de_problem.problem.add_equation(("kappa*dz(T1_z) = dz(Xi * F_conv + F_superad_initial)"))# - F_superad_initial)"))
         
         logger.debug('Setting HS equation')
-        self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
-                              "-T1 * dz(ln_rho1)"))
+#        self.de_problem.problem.add_equation(("dz(ln_rho1) = (dz(ln_rho1_IVP) - dz(log(Xi)))"))
+#        self.de_problem.problem.add_equation(("dz(ln_rho1) = (dz(ln_rho1_IVP) - dz(log(Xi)))"))
+#        self.de_problem.problem.add_equation(("dz(ln_rho1) = -(T1_z/T0 - T1*T0_z/T0**2)/(1 + T1/T0)")) #constant pressure
 #                              "-T1 * dz(ln_rho1) - Xi*log(Xi)*T1_dzlnrho1_fluc - Xi**2*udotgradW + Xi*viscous_w "))
+        self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
+                              "-T1 * dz(ln_rho1) - ( Xi_mean*(exp(ln_rho1_IVP - ln_rho1)))**(2./3)*udotgradW"))
         
     def _set_BCs(self, thermal_BC_dict):
         """ 
@@ -440,20 +446,27 @@ class AEKappaMuFCE(Equations):
         elif thermal_BC_dict['temp']:
             raise NotImplementedError("BVP method not implemented for fixed temp BCs")
         elif thermal_BC_dict['temp_flux']:
+#            self.de_problem.problem.add_bc('left(ln_rho1) = 0')
             self.de_problem.problem.add_bc('left(T1) = 0')
             self.de_problem.problem.add_bc('right(T1_z) = 0')
         elif thermal_BC_dict['flux_temp']:
             self.de_problem.problem.add_bc('left(T1_z) = 0')
             self.de_problem.problem.add_bc('right(T1) = 0')
+#            self.de_problem.problem.add_bc('right(ln_rho1) = 0')
         self.de_problem.problem.add_bc('right(M1) = 0')
         self.de_problem.problem.add_bc('left(M1) = 0')
         for key in ['T1', 'T1_z', 'M1']:
+#        for key in ['T1', 'T1_z', 'ln_rho1']:
             self.de_problem.problem.meta[key]['z']['dirichlet'] = True
 
     def _set_parameters(self, field_dict):
-        for k in ['Xi', 'udotgradW', 'kappa', 'F_conv']:#, 'T1_dzlnrho1_fluc', 'viscous_w'
+        for k in ['Xi', 'udotgradW', 'kappa', 'F_conv', 'ln_rho1_IVP']:#, 'T1_dzlnrho1_fluc', 'viscous_w'
             this_field = self.de_domain.new_ncc()
             this_field['g'] = field_dict[k]
+            if k == 'ln_rho1_IVP':
+                deriv_field = self.de_domain.new_ncc()
+                this_field.differentiate('z', out=deriv_field)
+                self.de_problem.problem.parameters['ln_rho1_IVP_z'] = deriv_field
             self.de_problem.problem.parameters[k] = this_field 
         for k, fd in self.atmosphere.atmo_fields.items():
             self.de_problem.problem.parameters[k] = fd

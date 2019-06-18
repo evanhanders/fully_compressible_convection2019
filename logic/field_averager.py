@@ -180,10 +180,10 @@ class AveragerFCAE(FieldAverager):
 class AveragerFCStructure(FieldAverager):
 
     FIELDS = OrderedDict([
-                        ('T1',              'T1'),
-                        ('ln_rho1',         'ln_rho1'),
-                        ('mu',              'mu_full'),
-                        ('kappa',           'kappa_full'),
+                        ('T1_IVP',              'T1'),
+                        ('ln_rho1_IVP',         'ln_rho1'),
+                        ('mu',                  'mu_full'),
+                        ('kappa',               'kappa_full'),
                         ('udotgradW',           '(UdotGrad(w, w_z))'),
 #                        ('T1_dzlnrho1_fluc',    '((T1-plane_avg(T1))*dz(ln_rho1-plane_avg(ln_rho1)))'),
 #                        ('viscous_w',           '(L_visc_w + R_visc_w)'),

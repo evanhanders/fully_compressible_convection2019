@@ -38,7 +38,7 @@ def initialize_output(de_domain, de_problem, data_dir,
     analysis_profile = de_problem.solver.evaluator.add_file_handler(data_dir+"profiles", max_writes=max_writes, parallel=False, sim_dt=output_dt, mode=mode)
     analysis_scalar = de_problem.solver.evaluator.add_file_handler(data_dir+"scalar", max_writes=max_writes, parallel=False, sim_dt=output_dt, mode=mode)
 
-    basic_fields = ['u_rms', 'w_rms', 'vel_rms', 'T1', 'T_full', 'ln_rho1', 'rho_full', 'enstrophy', 's1', 's_full']
+    basic_fields = ['u_rms', 'w_rms', 'vel_rms', 'T1', 'T1_z', 'T_full', 'ln_rho1', 'rho_full', 'enstrophy', 's1', 's_full']
     if de_domain.dimensions == 3: basic_fields += ['v_rms', 'u_perp_rms']
     fluid_numbers = ['Re_rms', 'Pe_rms', 'Ma_iso_rms', 'Ma_ad_rms', 'Nu']
     energies = ['KE', 'PE', 'IE', 'TE', 'PE_fluc', 'IE_fluc', 'TE_fluc']
@@ -53,6 +53,7 @@ def initialize_output(de_domain, de_problem, data_dir,
     analysis_scalar.add_task( "vol_avg(sqrt(T1**2))", name="T1_rms")
     analysis_profile.add_task("plane_avg(g*dz(s_full)/Cp)", name="brunt_squared")
     analysis_scalar.add_task( "vol_avg(  g*dz(s_full)/Cp)", name="brunt_squared")
+    analysis_scalar.add_task( "integ(  rho_fluc )", name="M1")
     analysis_scalar.add_task("(plane_avg(right(F_cond_z)) - plane_avg(left(F_cond_z)))", name="flux_equilibration")
     analysis_scalar.add_task("(plane_avg(right(F_cond_z)) - plane_avg(left(F_cond_z)))/plane_avg(left(F_cond_z))",name="flux_equilibration_pct")
 

@@ -197,7 +197,7 @@ def FC_polytropic_convection(input_dict):
     equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     # Build solver, set stop times
-    de_problem.build_solver(de.timesteppers.SBDF2)
+    de_problem.build_solver(de.timesteppers.RK222)
 
     if run_time_buoy is None:
         stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
@@ -220,7 +220,7 @@ def FC_polytropic_convection(input_dict):
     if dt is None:
         dt = max_dt  
     cfl_safety = 0.2
-    CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety,
+    CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:
         CFL.add_velocities(('u', 'v', 'w'))
@@ -232,8 +232,9 @@ def FC_polytropic_convection(input_dict):
         task_args = (thermal_BC,)
         pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
-                            'min_bvp_time' : 20*atmosphere.atmo_params['t_buoy'], 
+        pre_loop_kwargs = { 'sim_time_start' : 2*atmosphere.atmo_params['t_buoy'], 
+                            'min_bvp_time' : 5*atmosphere.atmo_params['t_buoy'], 
+                            'between_ae_wait_time' : 30*atmosphere.atmo_params['t_buoy'],
                             'ae_convergence' : 1e-2, 
                             'bvp_threshold' : 1e-2 
                             }
