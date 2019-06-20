@@ -9,12 +9,9 @@ logger = logging.getLogger(__name__.split('.')[-1])
 
 from dedalus import public as de
 
-try:
-    from atmospheres import Polytrope
-except:
-    from sys import path
-    path.insert(0, './logic')
-    from logic.atmospheres import Polytrope
+from sys import path
+path.insert(0, './logic')
+from logic.atmospheres import Polytrope
 
 
 
