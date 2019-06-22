@@ -286,7 +286,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
     """
 
     def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, 
-                             ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2, between_ae_wait_time=None):
+                             ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2, between_ae_wait_time=None, later_bvp_time=None):
         """
         Sets up AE routines before the main IVP loop.
 
@@ -317,10 +317,12 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         """
         self.ae_convergence = ae_convergence
         self.bvp_threshold = bvp_threshold
-        self.min_bvp_time   = min_bvp_time
+        self.min_bvp_time = self.later_bvp_time  = min_bvp_time
         self.sim_time_start = self.sim_time_wait = sim_time_start
         if between_ae_wait_time is not None:
             self.sim_time_wait = between_ae_wait_time 
+        if later_bvp_time is not None:
+            self.later_bvp_time = later_bvp_time 
         self.doing_ae, self.finished_ae, self.Pe_switch = False, False, False
         self.averagers = []
         for conv, cl in zip(convergence_averager, averager_classes):
@@ -446,7 +448,8 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
                 self.doing_ae = False
                 self.sim_time_start = self.solver.sim_time + self.sim_time_wait
-                self.bvp_threshold /= 10**(1./4)
+                self.bvp_threshold /= 10**(1./2)
+                self.min_bvp_time = self.later_bvp_time
 
     def update_simulation_fields(self, de_problem):
         """ Updates simulation solver states """
@@ -470,6 +473,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         self.flow.add_property("plane_avg(T1)", name='T1_avg')
         self.flow.add_property("plane_avg(T1_z)", name='T1_z_avg')
         self.flow.add_property("plane_avg(ln_rho1)", name='ln_rho1_avg')
+        self.flow.add_property("plane_avg(rho_fluc)", name='rho_fluc_avg')
 
     def condition_flux(self, avg_fields, thermal_BC_dict):
         """ Calculate Xi = F_available / F_total_superadiabatic for AE """
@@ -529,15 +533,16 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
 
         z_slices = self.de_domain.domain.dist.grid_layout.slices(scales=1)[-1]
 
-        u_scaling = avg_fields['Xi']**(1./3)
-        thermo_scaling = u_scaling**2
+        u_scaling = ae_profiles['Xi_mean']**(1./3)
+        thermo_scaling = u_scaling**(2)
         
 
         #Calculate instantaneous thermo profiles
-        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg')]
+        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg', 'rho_fluc_avg')]
         T1_prof = self.flow.properties['T1_avg']['g']
         T1_z_prof = self.flow.properties['T1_z_avg']['g']
         ln_rho_prof = self.flow.properties['ln_rho1_avg']['g']
+        rho_fluc_prof = self.flow.properties['rho_fluc_avg']['g']
 
         T1 = self.solver.state['T1']
         T1_z = self.solver.state['T1_z']
@@ -546,7 +551,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         T1.set_scales(1, keep_data=True)
         T1['g'] -= T1_prof
         T1.set_scales(1, keep_data=True)
-        T1['g'] *= thermo_scaling[z_slices]
+        T1['g'] *= thermo_scaling#[z_slices]
         T1.set_scales(1, keep_data=True)
         T1['g'] += ae_profiles['T1'][z_slices]
         T1.set_scales(1, keep_data=True)
@@ -558,8 +563,8 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         self.AE_atmo.atmo_fields['rho0'].set_scales(1, keep_data=True)
         rho0 = self.AE_atmo.atmo_fields['rho0']['g'][z_slices]
         ln_rho1.set_scales(1, keep_data=True)
-        rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - np.exp(ln_rho_prof))
-#        rho_full_flucs *= thermo_scaling[z_slices]
+        rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - 1) - rho_fluc_prof
+        rho_full_flucs *= thermo_scaling#[z_slices]
         rho_full_new = rho_full_flucs + rho0*np.exp(ae_profiles['ln_rho1'])[z_slices]
         ln_rho1.set_scales(1, keep_data=True)
         ln_rho1['g']  = np.log(rho_full_new/rho0)
@@ -578,7 +583,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
             vel_vields.append('v')
         for k in vel_fields:
             self.solver.state[k].set_scales(1, keep_data=True)
-            self.solver.state[k]['g'] *= u_scaling[z_slices]
+            self.solver.state[k]['g'] *= u_scaling#[z_slices]
             self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
             self.solver.state[k].set_scales(1, keep_data=True)
 #            new_us.append(np.copy(self.solver.state[k]['g']))
@@ -599,6 +604,12 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
 #            self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
 
         # % diff from ln_rho1. Would do T1, but T1 = 0 boundaries make it hard.
-        diff = (1 - (np.exp(avg_fields['ln_rho1_IVP'])-1)/(np.exp(ae_profiles['ln_rho1'])-1))
+
+        self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
+        T0 = self.AE_atmo.atmo_fields['T0']['g']
+        diff = (1 - (T0 + avg_fields['T1_IVP'])/(T0 + ae_profiles['T1']))/np.max(avg_fields['std_T1'])
+        print(diff)
         return np.mean(np.abs(diff))
+#        diff = (1 - ae_profiles['Xi_mean'])
+#        return np.mean(np.abs(diff))
         
