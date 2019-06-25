@@ -53,7 +53,7 @@ def initialize_output(de_domain, de_problem, data_dir,
     analysis_scalar.add_task( "vol_avg(sqrt(T1**2))", name="T1_rms")
     analysis_profile.add_task("plane_avg(g*dz(s_full)/Cp)", name="brunt_squared")
     analysis_scalar.add_task( "vol_avg(  g*dz(s_full)/Cp)", name="brunt_squared")
-    analysis_scalar.add_task( "integ(  rho_fluc )", name="M1")
+    analysis_scalar.add_task( "integ(  rho_full - rho0)", name="M1")
     analysis_scalar.add_task("(plane_avg(right(F_cond_z)) - plane_avg(left(F_cond_z)))", name="flux_equilibration")
     analysis_scalar.add_task("(plane_avg(right(F_cond_z)) - plane_avg(left(F_cond_z)))/plane_avg(left(F_cond_z))",name="flux_equilibration_pct")
 

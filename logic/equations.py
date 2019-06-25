@@ -411,7 +411,7 @@ class AEKappaMuFCE(Equations):
         self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
         self.de_problem.problem.substitutions['P0'] = '(R*rho0*T0)'
         self.de_problem.problem.substitutions['F_superad_initial'] = '-kappa*(T0_z - T_ad_z)'
-        self.de_problem.problem.substitutions['Xi_mean'] = 'integ(Xi)/Lz'
+        self.de_problem.problem.substitutions['Xi_adj_mean'] = 'integ(Xi*(exp(ln_rho1_IVP - ln_rho1)))/Lz'
 
         logger.debug('setting T1_z eqn')
         self.de_problem.problem.add_equation("dz(T1) - T1_z = 0")
@@ -429,7 +429,7 @@ class AEKappaMuFCE(Equations):
 #        self.de_problem.problem.add_equation(("dz(ln_rho1) = -(T1_z/T0 - T1*T0_z/T0**2)/(1 + T1/T0)")) #constant pressure
 #                              "-T1 * dz(ln_rho1) - Xi*log(Xi)*T1_dzlnrho1_fluc - Xi**2*udotgradW + Xi*viscous_w "))
         self.de_problem.problem.add_equation(("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) ="+\
-                              "-T1 * dz(ln_rho1) - ( Xi_mean*(exp(ln_rho1_IVP - ln_rho1)))**(2./3)*udotgradW"))
+                              "-T1 * dz(ln_rho1) - ( Xi_adj_mean**(2./3) )*udotgradW"))
         
     def _set_BCs(self, thermal_BC_dict):
         """ 
