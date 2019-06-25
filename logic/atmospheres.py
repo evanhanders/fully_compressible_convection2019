@@ -194,6 +194,89 @@ class Polytrope(IdealGasAtmosphere):
         Specifies diffusivity profiles of initial conditions. Initial diffusivites go like 1/rho,
         such that the dynamic diffusivites are constant in the initial atmosphere.
 
+        Parameters:
+        ----------
+        chi_top : float
+            Thermal diffusivity at top of atmosphere (length^2 / time)
+        nu_top : float
+            Viscous diffusivity at top of atmosphere (length^2 / time)
+        """
+        self.atmo_fields['chi0']['g'] = chi_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['nu0']['g']  =  nu_top/self.atmo_fields['rho0']['g']
+        Lz = self.atmo_params['Lz']
+        self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
+        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
+        logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
+        logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
+
+class TriLayerIH(IdealGasAtmosphere):
+    """
+    An extension of an IdealGasAtmosphere for a very simple, 3-layer RZ/CZ/RZ stratification,
+    nondimensionalized by default on the atmosphere's adiabatic temperature gradient and the
+    isothermal sound crossing time at the top.
+    """
+    def __init__(self, *args, **kwargs):
+        super(TriLayerIH, self).__init__(*args, **kwargs)
+
+    def _prepare_scalar_info(self, epsilon=0, Lz=10, gamma=5./3, R=1):
+        """ Sets up scalar parameters in the atmosphere.
+
+        Parameters
+        ----------
+            epsilon : float
+                Magnitude of the IH / flux
+            Lz : float
+                Depth of total atmosphere in adiabatic temp gradient units.
+            gamma : float
+                Adiabatic index
+            R : float
+                Ideal gas constant (P = R rho T)
+        """
+        self.atmo_params['Lz']       = Lz
+        self.atmo_params['epsilon']  = self.atmo_params['delta_s'] = epsilon
+        super(TriLayerIH, self)._set_thermodynamics(gamma=gamma, R=R)
+        self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['epsilon']))
+        self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
+        logger.info('Initialized Polytrope:')
+        logger.info('   epsilon = {:.2e}'.format(epsilon))
+        logger.info('   Lz = {:.2g}, t_buoy = {:.2g}'.format(self.atmo_params['Lz'], self.atmo_params['t_buoy']))
+
+    def build_atmosphere(self, de_domain):
+        """
+        Sets up atmosphere according to a polytropic stratification of the form:
+            T0 =  1 + (Lz - z)
+            rho0 = T0**m 
+
+        Parameters
+        ----------
+            de_domain : DedalusDomain
+                Contains information about the domain where the problem is specified
+        """ 
+        self._make_atmo_fields(de_domain)
+        z = de_domain.z
+        Lz = self.atmo_params['Lz']
+        epsilon = self.atmo_params['epsilon']
+        zl = z/Lz
+        T0 = 1 + self.atmo_params['T_ad_z']*(z - Lz) + epsilon*Lz**2*(-zl**3/6 + zl**2/4 - zl/9 + 1/36) 
+        self.atmo_fields['T0']['g']      = T0
+        self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
+        self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])
+
+        self.atmo_fields['T0'].set_scales(1, keep_data=True)
+        self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
+        self.atmo_fields['ln_rho0_z']['g'] = - (self.atmo_params['g'] + self.atmo_fields['T0_z']['g'] ) / self.atmo_fields['T0']['g']
+        self.atmo_fields['ln_rho0_z'].antidifferentiate('z', ('left', 1), out=self.atmo_fields['ln_rho0'])
+        self.atmo_fields['ln_rho0'].set_scales(1, keep_data=True)
+        self.atmo_fields['rho0']['g'] = np.exp(self.atmo_fields['ln_rho0']['g'])
+
+
+        self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(1 + self.atmo_params['T_ad_z']*(z - Lz))
+
+    def set_diffusivites(self, chi_top, nu_top):
+        """
+        Specifies diffusivity profiles of initial conditions. Initial diffusivites go like 1/rho,
+        such that the dynamic diffusivites are constant in the initial atmosphere.
+
         Parameters
         ----------
         chi_top : float
