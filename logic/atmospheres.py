@@ -119,12 +119,17 @@ class IdealGasAtmosphere:
         import h5py
         mpi_makedirs(out_dir)
         out_file = '{:s}/atmosphere.h5'.format(out_dir)
-        with h5py.File('{:s}'.format(out_file), 'w') as f:
+        if de_domain.domain.distributor.rank == 0:
+            f = h5py.File('{:s}'.format(out_file), 'w')
             f['z'] = de_domain.generate_vertical_profile(de_domain.z)
-            for k, p in self.atmo_params.items():
-                f[k] = p
-            for k, fd in self.atmo_fields.items():
-                f[k] = de_domain.generate_vertical_profile(fd, scales=1)
+        for k, p in self.atmo_params.items():
+            r = p
+            if de_domain.domain.distributor.rank == 0:
+                f[k] = r
+        for k, fd in self.atmo_fields.items():
+            r = de_domain.generate_vertical_profile(fd, scales=1)
+            if de_domain.domain.distributor.rank == 0:
+                f[k] = r
 
 class Polytrope(IdealGasAtmosphere):
     """
@@ -257,7 +262,7 @@ class TriLayerIH(IdealGasAtmosphere):
         Lz = self.atmo_params['Lz']
         epsilon = self.atmo_params['epsilon']
         zl = z/Lz
-        T0 = 1 + self.atmo_params['T_ad_z']*(z - Lz) + epsilon*Lz**2*(-zl**3/6 + zl**2/4 - zl/9 + 1/36) 
+        T0 = 1 + self.atmo_params['T_ad_z']*(z - Lz) + epsilon*Lz**2*(-zl**3/3 + zl**2/2 - 6*zl/25 + (1./6 - 6./25)) 
         self.atmo_fields['T0']['g']      = T0
         self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
         self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])

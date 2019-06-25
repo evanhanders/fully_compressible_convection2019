@@ -196,6 +196,8 @@ def FC_TriLayer_convection(input_dict):
     de_problem = problem_type(de_domain)
     equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
+    atmosphere.save_atmo_file('./', de_domain)
+
     # Build solver, set stop times
     de_problem.build_solver(de.timesteppers.RK222)
 

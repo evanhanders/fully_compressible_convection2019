@@ -131,7 +131,7 @@ class DedalusDomain:
                 The scales of the Dedalus field's grid data
         """
         gslices = self.domain.dist.grid_layout.slices(scales=scales)
-        global_array = np.zeros(int(scales*self.nz))
+        global_array = np.zeros(int(scales*self.resolution[0]))
         local_array  = np.zeros_like(global_array)
 
         if type(field) is Field:
