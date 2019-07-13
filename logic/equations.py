@@ -11,7 +11,7 @@ from dedalus import public as de
 
 from sys import path
 path.insert(0, './logic')
-from logic.atmospheres import Polytrope
+from logic.atmospheres import Polytrope, TriLayerIH
 
 
 
@@ -320,11 +320,11 @@ class KappaMuFCE(FullyCompressibleEquations):
 
     def _set_diffusion_subs(self):
         """ Sets substitutions for diffusivities, viscous terms, and energy equation diffusiton terms """
-        self.de_problem.problem.substitutions['kappa_full']   = '(rho0*chi0)'
+        self.de_problem.problem.substitutions['kappa_full']   = '(kappa0)'
         self.de_problem.problem.substitutions['kappa_full_z'] = '(0)'
         self.de_problem.problem.substitutions['kappa_fluc']   = '(0)'
         self.de_problem.problem.substitutions['chi']          = '(chi0*exp(-ln_rho1))'
-        self.de_problem.problem.substitutions['mu_full']      = '(rho0*nu0)'
+        self.de_problem.problem.substitutions['mu_full']      = '(mu0)'
         self.de_problem.problem.substitutions['mu_full_z']    = '(0)'
         self.de_problem.problem.substitutions['mu_fluc']      = '(0)'
         self.de_problem.problem.substitutions['nu']           = '(nu0*exp(-ln_rho1))'
@@ -336,7 +336,7 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['thermal'] = ('( ((1/Cv))*(kappa_full*Lap(T1, T1_z) + kappa_full_z*T1_z) )')
 
         self.de_problem.problem.substitutions['scale_c']    = '(T0)'
-        if type(self.atmosphere) is Polytrope: #Makes polytropes a low bandwidth problem
+        if type(self.atmosphere) in (Polytrope,):# TriLayerIH): #Makes polytropes a low bandwidth problem
             self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
             self.de_problem.problem.substitutions['scale_m']    = '(T0)'
             self.de_problem.problem.substitutions['scale_e']    = '(T0)'

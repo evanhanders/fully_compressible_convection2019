@@ -56,6 +56,7 @@ try:
     plotter.add_plot('nu_v_time.png', 'Nu', start_x_avg=avg_start_time)
     plotter.add_plot('re_v_time.png', 'Re_rms', start_x_avg=avg_start_time)
     plotter.add_plot('m1_v_time.png', 'M1', start_x_avg=avg_start_time)
+    plotter.add_plot('TE_v_time.png', 'TE_fluc', start_x_avg=avg_start_time)
     plotter.add_plot('equil_v_time.png', 'flux_equilibration', start_x_avg=avg_start_time)
     plotter.make_plots(do_avg=not(no_avg))
     plotter.save_scalars()

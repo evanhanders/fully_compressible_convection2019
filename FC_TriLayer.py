@@ -5,9 +5,11 @@ Usage:
     FC_TriLayer.py [options] 
 
 Options:
-    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e4]
+    --Rayleigh=<Rayleigh>      Rayleigh number [default: 1e6]
     --Prandtl=<Prandtl>        Prandtl number = nu/kappa [default: 1]
-    --Lz=<n>                   Number of density scale heights of polytrope ICs [default: 10]
+    --n_rho_cz=<n>             Number of density scale heights of CZ [default: 1]
+    --n_rho_rzT=<n>             Number of density scale heights of CZ [default: 2]
+    --n_rho_rzB=<n>             Number of density scale heights of CZ [default: 0.5]
     --epsilon=<epsilon>        Superadiabatic excess of polytropic atmosphere [default: 1e-4]
     --aspect=<aspect>          Aspect ratio of problem (Lx = Ly = aspect*Lz) [default: 4]
     --3D                       Run in 3D
@@ -49,12 +51,12 @@ def name_case(input_dict):
     """
     Creates an informative string of the form:
 
-    FC_poly_Ra{0}_Pr{1}_Lz{2}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}{10}
+    FC_poly_Ra{0}_Pr{1}_nRho{2a}-{2b}-{2c}_eps{3}_a{4}_{5}D_T{6}_V{7}_{8}{9}{10}
 
     which is the name of the output directory, and where the numbers here are:
     {0}     - Rayleigh number
     {1}     - Prandtl number
-    {2}     - Lz, atmospheric depth
+    {2a-c}  - number of density scale heights in (top RZ, CZ, bot RZ)
     {3}     - epsilon, superadiabatic excess
     {4}     - aspect ratio
     {5}     - 2 or 3 (dimensions of the problem)
@@ -72,9 +74,11 @@ def name_case(input_dict):
     import sys
     # save data in directory named after script
     case_name = sys.argv[0].split('.py')[0]
-    case_name += "_Ra{}_Pr{}_Lz{}_eps{}_a{}".format( input_dict['--Rayleigh'], 
+    case_name += "_Ra{}_Pr{}_nRho{}-{}-{}_eps{}_a{}".format( input_dict['--Rayleigh'], 
                                                     input_dict['--Prandtl'], 
-                                                    input_dict['--Lz'],
+                                                    input_dict['--n_rho_rzB'],
+                                                    input_dict['--n_rho_cz'],
+                                                    input_dict['--n_rho_rzT'],
                                                     input_dict['--epsilon'],
                                                     input_dict['--aspect'] )
     if input_dict['--3D']:
@@ -135,7 +139,7 @@ def FC_TriLayer_convection(input_dict):
 
     # Read in command line args & process them
     # Atmosphere params
-    Ra, Pr, Lz, eps, aspect = [float(input_dict[k]) for k in ('--Rayleigh', '--Prandtl', '--Lz', '--epsilon', '--aspect')]
+    Ra, Pr, n_rho_rzT, n_rho_cz, n_rho_rzB, eps, aspect = [float(input_dict[k]) for k in ('--Rayleigh', '--Prandtl', '--n_rho_rzT', '--n_rho_cz', '--n_rho_rzB', '--epsilon', '--aspect')]
     threeD = input_dict['--3D']
 
     # BCs
@@ -170,7 +174,9 @@ def FC_TriLayer_convection(input_dict):
 
     # Initialize atmosphere class 
     atmo_kwargs   = OrderedDict([('epsilon',        eps),
-                                 ('Lz',          Lz),
+                                 ('n_rho_rzT',      n_rho_rzT),
+                                 ('n_rho_cz',       n_rho_cz),
+                                 ('n_rho_rzB',      n_rho_rzB),
                                  ('gamma',          5./3),
                                  ('R',              1)
                                 ])

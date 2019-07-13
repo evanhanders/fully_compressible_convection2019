@@ -81,7 +81,7 @@ class DedalusIVP(DedalusProblem):
         super(DedalusIVP, self).__init__(*args, **kwargs)
         self.problem_type = 'IVP'
     
-    def build_problem(self, ncc_cutoff=1e-10):
+    def build_problem(self, ncc_cutoff=1e-16):
         """Constructs and initial value problem of the current object's equation set
 
         Arguments:

@@ -79,7 +79,7 @@ class IdealGasAtmosphere:
         add_fields  : list of strings
             Additional fields to add to self.atmo_fields
         """
-        fds = ['T0', 'T0_z', 'T0_zz', 'rho0', 'ln_rho0', 'ln_rho0_z', 'phi', 'chi0', 'nu0']
+        fds = ['T0', 'T0_z', 'T0_zz', 'rho0', 'ln_rho0', 'ln_rho0_z', 'phi', 'chi0', 'nu0', 'kappa0', 'mu0']
         if type(add_fields) is list:
             fds += add_fields
         for f in fds:
@@ -223,28 +223,28 @@ class TriLayerIH(IdealGasAtmosphere):
     def __init__(self, *args, **kwargs):
         super(TriLayerIH, self).__init__(*args, **kwargs)
 
-    def _prepare_scalar_info(self, epsilon=0, Lz=10, gamma=5./3, R=1):
+    def _prepare_scalar_info(self, epsilon=1e-4, n_rho_cz=3, n_rho_rzT=4, n_rho_rzB=0.5, gamma=5./3, R=1):
         """ Sets up scalar parameters in the atmosphere.
 
         Parameters
         ----------
             epsilon : float
                 Magnitude of the IH / flux
-            Lz : float
-                Depth of total atmosphere in adiabatic temp gradient units.
             gamma : float
                 Adiabatic index
             R : float
                 Ideal gas constant (P = R rho T)
         """
-        self.atmo_params['Lz']       = Lz
-        self.atmo_params['epsilon']  = self.atmo_params['delta_s'] = epsilon
+        self.atmo_params['n_rho_rzT']       = n_rho_rzT
+        self.atmo_params['n_rho_rzB']       = n_rho_rzB
+        self.atmo_params['n_rho_cz']        = n_rho_cz
+        self.atmo_params['m_ad'] = 1/(gamma-1)
+        self.atmo_params['Lz'] = self.Lz = np.exp((n_rho_rzT + n_rho_rzB + n_rho_cz)/self.atmo_params['m_ad']) - 1
+        self.atmo_params['L_RT'] = self.L_RT = np.exp((n_rho_rzT)/self.atmo_params['m_ad']) - 1
+        self.atmo_params['L_C'] = self.L_C = np.exp((n_rho_rzT + n_rho_cz)/self.atmo_params['m_ad']) - 1 - self.L_RT
+        self.atmo_params['L_RB'] = self.L_RB = self.Lz - self.L_C - self.L_RT
+        self.atmo_params['epsilon'] = epsilon
         super(TriLayerIH, self)._set_thermodynamics(gamma=gamma, R=R)
-        self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['epsilon']))
-        self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
-        logger.info('Initialized Polytrope:')
-        logger.info('   epsilon = {:.2e}'.format(epsilon))
-        logger.info('   Lz = {:.2g}, t_buoy = {:.2g}'.format(self.atmo_params['Lz'], self.atmo_params['t_buoy']))
 
     def build_atmosphere(self, de_domain):
         """
@@ -259,13 +259,20 @@ class TriLayerIH(IdealGasAtmosphere):
         """ 
         self._make_atmo_fields(de_domain)
         z = de_domain.z
-        Lz = self.atmo_params['Lz']
         epsilon = self.atmo_params['epsilon']
-        zl = z/Lz
-        T0 = 1 + self.atmo_params['T_ad_z']*(z - Lz) + epsilon*Lz**2*(-zl**3/3 + zl**2/2 - 6*zl/25 + (1./6 - 6./25)) 
+        A = 1./6
+        B = -(1./2)*(self.L_RB + self.L_C/2)
+        C = (1./2)*(self.L_RB)*(self.L_RB + self.L_C)
+        D = -(A*self.Lz**3 + B*self.Lz**2 + C*self.Lz)
+        T0 = 1 + self.atmo_params['T_ad_z']*(z - self.Lz) + epsilon*(A*z**3 + B*z**2 + C*z + D) 
         self.atmo_fields['T0']['g']      = T0
         self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
         self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])
+
+#        import matplotlib.pyplot as plt
+#        self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
+#        plt.plot(z[0,:], self.atmo_fields['T0_z']['g'][0,:]-self.atmo_params['T_ad_z'])
+#        plt.show()
 
         self.atmo_fields['T0'].set_scales(1, keep_data=True)
         self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
@@ -274,8 +281,19 @@ class TriLayerIH(IdealGasAtmosphere):
         self.atmo_fields['ln_rho0'].set_scales(1, keep_data=True)
         self.atmo_fields['rho0']['g'] = np.exp(self.atmo_fields['ln_rho0']['g'])
 
+        self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(1 + self.atmo_params['T_ad_z']*(z - self.Lz))
 
-        self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(1 + self.atmo_params['T_ad_z']*(z - Lz))
+        s0 = de_domain.domain.new_field()
+        s0['g'] = (1/self.atmo_params['gamma'])*(np.log(self.atmo_fields['T0']['g']) - (self.atmo_params['gamma']-1)*self.atmo_fields['ln_rho0']['g'])
+        self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_RB)['g'])-np.mean(s0.interpolate(z=self.L_RB+self.L_C)['g']))
+        print(self.atmo_params['delta_s'])
+        
+        
+        self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
+        self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
+        logger.info('Initialized TriLayer:')
+        logger.info('   epsilon = {:.2e}'.format(epsilon))
+        logger.info('   Lz = {:.2g}, t_buoy = {:.2g}'.format(self.atmo_params['Lz'], self.atmo_params['t_buoy']))
 
     def set_diffusivites(self, chi_top, nu_top):
         """
@@ -289,10 +307,12 @@ class TriLayerIH(IdealGasAtmosphere):
         nu_top : float
             Viscous diffusivity at top of atmosphere (length^2 / time)
         """
-        self.atmo_fields['chi0']['g'] = chi_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['chi0']['g'] =  chi_top/self.atmo_fields['rho0']['g']
         self.atmo_fields['nu0']['g']  =  nu_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['kappa0']['g'] =  chi_top
+        self.atmo_fields['mu0']['g']  =  nu_top
         Lz = self.atmo_params['Lz']
         self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
-        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
+        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('kappa0', 'mu0', 'chi0', 'nu0', 'rho0')]
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
         logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
