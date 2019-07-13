@@ -358,7 +358,7 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - L_visc_u)"
         self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - L_visc_v)"
         self.de_problem.problem.substitutions['R_visc_w'] = "(visc_w/rho_full - L_visc_w)"
-        self.de_problem.problem.substitutions['R_thermal'] = ('( (thermal/rho_full - L_thermal) + ((1/Cv)/(rho_full))*(kappa_full*T0_zz) )' )
+        self.de_problem.problem.substitutions['R_thermal'] = ('( (thermal/rho_full - L_thermal) )' )
 
         self.de_problem.problem.substitutions['source_terms'] = '0'
         self.de_problem.problem.substitutions['R_visc_heat']  = " (mu_full/rho_full*(1/Cv))*(dx(u)*Sig_xx + dy(v)*Sig_yy + w_z*Sig_zz + Sig_xy**2 + Sig_xz**2 + Sig_yz**2)"

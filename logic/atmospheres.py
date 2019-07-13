@@ -119,9 +119,11 @@ class IdealGasAtmosphere:
         import h5py
         mpi_makedirs(out_dir)
         out_file = '{:s}/atmosphere.h5'.format(out_dir)
+        z = de_domain.generate_vertical_profile(de_domain.z)
         if de_domain.domain.distributor.rank == 0:
             f = h5py.File('{:s}'.format(out_file), 'w')
-            f['z'] = de_domain.generate_vertical_profile(de_domain.z)
+            f['z'] = z
+
         for k, p in self.atmo_params.items():
             r = p
             if de_domain.domain.distributor.rank == 0:
@@ -269,11 +271,6 @@ class TriLayerIH(IdealGasAtmosphere):
         self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
         self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])
 
-#        import matplotlib.pyplot as plt
-#        self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
-#        plt.plot(z[0,:], self.atmo_fields['T0_z']['g'][0,:]-self.atmo_params['T_ad_z'])
-#        plt.show()
-
         self.atmo_fields['T0'].set_scales(1, keep_data=True)
         self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
         self.atmo_fields['ln_rho0_z']['g'] = - (self.atmo_params['g'] + self.atmo_fields['T0_z']['g'] ) / self.atmo_fields['T0']['g']
@@ -286,8 +283,6 @@ class TriLayerIH(IdealGasAtmosphere):
         s0 = de_domain.domain.new_field()
         s0['g'] = (1/self.atmo_params['gamma'])*(np.log(self.atmo_fields['T0']['g']) - (self.atmo_params['gamma']-1)*self.atmo_fields['ln_rho0']['g'])
         self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_RB)['g'])-np.mean(s0.interpolate(z=self.L_RB+self.L_C)['g']))
-        print(self.atmo_params['delta_s'])
-        
         
         self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
         self.atmo_params['t_therm']  = 0 #fill in set_diffusivities

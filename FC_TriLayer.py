@@ -200,6 +200,7 @@ def FC_TriLayer_convection(input_dict):
     else:
         problem_type = DedalusIVP
     de_problem = problem_type(de_domain)
+
     equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     atmosphere.save_atmo_file('./', de_domain)
