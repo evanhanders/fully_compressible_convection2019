@@ -316,11 +316,11 @@ class MovieBuddy(PlotBuddy):
                 fancy_str.append(new_str)
 
             if this_p['symm_cbar']:
-                cax.annotate(r'$\pm${:s}'.format(fancy_str[1]), (1.02, 0.01), size=11, color='black', xycoords=trans)
+                cax.annotate(r'$\pm${:s}'.format(fancy_str[1]), (1.02, 0.01), size=11, color='black', xycoords=trans, clip_on=True)
             else:
-                cax.annotate(r'{:s}, {:s}'.format(fancy_str[0], fancy_str[1]), (1.02,0.01), size=11, color='black', xycoords=trans)
+                cax.annotate(r'{:s}, {:s}'.format(fancy_str[0], fancy_str[1]), (1.02,0.01), size=11, color='black', xycoords=trans, clip_on=True)
 #                cax.annotate(r'{:s}'.format(fancy_str[1]), (1.02,0.01), size=11, color='black', xycoords=trans)
-            cax.annotate(r'{:s}'.format(field), (0,1.25), size=11, color='black', xycoords=trans)
+            cax.annotate(r'{:s}'.format(field), (0,1.25), size=11, color='black', xycoords=trans, clip_on=True)
         else:
             plt.xticks([], [])
             plt.yticks([], [])

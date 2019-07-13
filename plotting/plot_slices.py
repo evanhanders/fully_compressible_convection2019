@@ -55,5 +55,5 @@ for i in range(buddy1.local_writes):
             f = f[0]
         buddy1.plot_colormesh(grid.axes['ax_0-{}'.format(j)], f, i, global_cmap=args['--static_cbar'])
     plt.suptitle('t = {:.4g}'.format(buddy1.local_times[i]))
-    grid.fig.savefig('{:s}/{:s}_{:06d}.png'.format(out_dir, fig_name, buddy1.local_writes_below+write_num_1+i), dpi=200, bbox_inches='tight')
+    grid.fig.savefig('{:s}/{:s}_{:06d}.png'.format(out_dir, fig_name, buddy1.local_writes_below+write_num_1+i), dpi=200, bbox_inches='tight', figsize=(grid.width, grid.height))
     plt.close(grid.fig)

@@ -17,6 +17,7 @@ class PlotGrid:
         self.ncols     = ncols
         self.width     = ncols*col_in
         self.height    = nrows*row_in
+        print(self.width, self.height)
         self.fig       = plt.figure(figsize=(self.width, self.height))
         self.gs        = gridspec.GridSpec(1000,1000) #height units, then width units
         col_size       = int((1000 - padding*(self.ncols-1))/self.ncols) 
