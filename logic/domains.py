@@ -150,5 +150,5 @@ class DedalusDomain:
 
         self.domain.dist.comm_cart.Allreduce(local_array, global_array, op=MPI.SUM)
         if not(self.mesh is None):
-            global_array /= mesh[0]
+            global_array /= self.mesh[0]
         return global_array

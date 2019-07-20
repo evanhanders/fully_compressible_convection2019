@@ -210,9 +210,11 @@ class Polytrope(IdealGasAtmosphere):
         """
         self.atmo_fields['chi0']['g'] = chi_top/self.atmo_fields['rho0']['g']
         self.atmo_fields['nu0']['g']  =  nu_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['kappa0']['g'] =  chi_top
+        self.atmo_fields['mu0']['g']  =  nu_top
         Lz = self.atmo_params['Lz']
         self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
-        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0')]
+        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0', 'mu0', 'kappa0')]
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
         logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
 

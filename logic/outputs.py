@@ -69,20 +69,18 @@ def initialize_output(de_domain, de_problem, data_dir,
         analysis_tasks['slices'] = slices
 
     if de_domain.dimensions == 3:
+        Lx, Ly, Lz = de_domain.resolution
         slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
-        slices.add_task("interp(T1 + T0,         y={})".format(de_domain.Ly/2), name='T')
-        slices.add_task("interp(T1 + T0,         z={})".format(0.95*de_domain.Lz), name='T near top')
-        slices.add_task("interp(T1 + T0,         z={})".format(de_domain.Lz/2), name='T midplane')
-        slices.add_task("interp(w,         y={})".format(de_domain.Ly/2), name='w')
-        slices.add_task("interp(w,         z={})".format(0.95*de_domain.Lz), name='w near top')
-        slices.add_task("interp(w,         z={})".format(de_domain.Lz/2), name='w midplane')
-        slices.add_task("interp(enstrophy,         y={})".format(de_domain.Ly/2),    name='enstrophy')
-        slices.add_task("interp(enstrophy,         z={})".format(0.95*de_domain.Lz), name='enstrophy near top')
-        slices.add_task("interp(enstrophy,         z={})".format(de_domain.Lz/2),    name='enstrophy midplane')
+        slices.add_task("interp(s_full,         y={})".format(Ly/2), name='s')
+        slices.add_task("interp(s_full,         z={})".format(0.95*Lz), name='s near top')
+        slices.add_task("interp(s_full,         z={})".format(Lz/2), name='s midplane')
+        slices.add_task("interp(w,         y={})".format(Ly/2), name='w')
+        slices.add_task("interp(w,         z={})".format(0.95*Lz), name='w near top')
+        slices.add_task("interp(w,         z={})".format(Lz/2), name='w midplane')
+        slices.add_task("interp(enstrophy,         y={})".format(Ly/2),    name='enstrophy')
+        slices.add_task("interp(enstrophy,         z={})".format(0.95*Lz), name='enstrophy near top')
+        slices.add_task("interp(enstrophy,         z={})".format(Lz/2),    name='enstrophy midplane')
         analysis_tasks['slices'] = slices
-
-        analysis_tasks['profiles'].add_task('plane_avg(Oz)', name="z_vorticity")
-        analysis_tasks['scalar'].add_task('vol_avg(Rossby)', name='Ro')
 
         if volumes_output:
             analysis_volume = de_problem.solver.evaluator.add_file_handler(data_dir+'volumes', sim_dt=output_vol_dt, max_writes=max_vol_writes, mode=mode)

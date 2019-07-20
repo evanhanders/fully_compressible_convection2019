@@ -81,7 +81,7 @@ class DedalusIVP(DedalusProblem):
         super(DedalusIVP, self).__init__(*args, **kwargs)
         self.problem_type = 'IVP'
     
-    def build_problem(self, ncc_cutoff=1e-16):
+    def build_problem(self, ncc_cutoff=1e-10):
         """Constructs and initial value problem of the current object's equation set
 
         Arguments:
@@ -282,11 +282,11 @@ class DedalusNLBVP(DedalusProblem):
 class AcceleratedEvolutionIVP(DedalusIVP):
     """
     Solves an IVP using BVPs to accelerate the evolution of the IVP, as in Anders, Brown, & Oishi 2018 PRFluids.
-    Not well documented, WIP.
+    Must be extended for specific equation sets (boussinesq, FC, etc.), but contains some generalized overarching logic.
     """
 
     def pre_loop_setup(self, averager_classes, convergence_averager, root_dir, atmo_kwargs, experiment_class, experiment_args, experiment_kwargs, 
-                             ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2, between_ae_wait_time=None, later_bvp_time=None):
+                             ae_convergence=0.01, sim_time_start=0, min_bvp_time=5, bvp_threshold=1e-2, between_ae_wait_time=None, later_bvp_time=None, min_bvp_threshold=1e-3):
         """
         Sets up AE routines before the main IVP loop.
 
@@ -314,9 +314,16 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 Minimum sim time over which to take averages
             bvp_threshold : float, optional
                 Starting convergence threshold required for BVP profiles. Decreases with each AE iteration.
+            min_bvp_threshold : float, optional
+                Minimum value to reduce bvp threshold to. Threshold redues by a factor of 2 on each AE solve until it reaches this value.
+            between_ae_wait_time : float, optional
+                Sim time to wait after completing an AE solve before starting to measure for the next
+            later_bvp_time : float, optional
+                Like 'min_bvp_time' for all AE solves after the first.
         """
         self.ae_convergence = ae_convergence
         self.bvp_threshold = bvp_threshold
+        self.min_bvp_threshold = min_bvp_threshold
         self.min_bvp_time = self.later_bvp_time  = min_bvp_time
         self.sim_time_start = self.sim_time_wait = sim_time_start
         if between_ae_wait_time is not None:
@@ -327,6 +334,9 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         self.averagers = []
         for conv, cl in zip(convergence_averager, averager_classes):
             self.averagers.append((conv, cl(self.solver, self.de_domain, root_dir)))
+
+        self.scale_sim_to_ae = 1
+        self.scale_ae_to_sim = 1
         self.AE_atmo   = type(self.de_domain.atmosphere)(**atmo_kwargs)
         self.AE_domain = DedalusDomain(self.AE_atmo, (self.de_domain.resolution[0],), 0, comm=MPI.COMM_SELF)
         self.AE_experiment = experiment_class(self.AE_domain, self.AE_atmo, *experiment_args[2:], **experiment_kwargs)
@@ -357,10 +367,14 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 else:
                     return False
         
-
     def special_tasks(self, thermal_BC_dict):
         """
         Logic for AE performed every loop iteration
+
+        Inputs:
+        -------
+        thermal_BC_dict : dictionary, optional
+            A dictionary of keywords containing info about the thermal boundary conditions used in the problem.
         """
         # Don't do anything AE related if Pe < 1
         if self.flow.grid_average('Pe') < 1 and not self.Pe_switch:
@@ -391,56 +405,18 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     for k, prof in averager.avg_profiles.items():
                         avg_fields[k] = averager.local_to_global_average(prof/averager.elapsed_avg_time)
                     averager.save_file()
-                avg_fields = self.condition_flux(avg_fields, thermal_BC_dict)
 
                 #Solve BVP
                 if self.de_domain.domain.dist.comm_cart.rank == 0:
                     de_problem = DedalusNLBVP(self.AE_domain)
-                    equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.AE_atmo, self.AE_domain, de_problem)
+                    equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.scale_ae_to_sim, self.AE_atmo, self.AE_domain, de_problem)
                     de_problem.build_solver()
                     de_problem.solve_BVP()
                 else:
                     de_problem = None
 
-                ae_structure = self.local_to_global_ae(de_problem)
-                if self.de_domain.domain.dist.comm_cart.rank == 0:
-                    import matplotlib
-                    matplotlib.use('Agg')
-                    import matplotlib.pyplot as plt
-                    plt.axhline(0, c='k')
-                    plt.plot(avg_fields['F_avail'] - avg_fields['kappa']*ae_structure['T1_z'], label='ae flux')
-                    plt.plot(avg_fields['Xi']*avg_fields['F_conv'], label='Fconv_in * xi')
-                    plt.legend(loc='best')
-                    plt.savefig('flux_out_ae.png', bbox_inches='tight')
-                    plt.close()
-                    plt.plot(avg_fields['Xi'])
-                    plt.ylabel('xi')
-                    plt.savefig('xi.png', bbox_inches='tight')
-                    plt.close()
-                    plt.plot(avg_fields['udotgradW'])
-                    plt.ylabel('udotgradW')
-                    plt.savefig('udotgradW.png', bbox_inches='tight')
-                    plt.close()
-
-                    plt.plot(ae_structure['T1'])
-                    plt.ylabel('t1')
-                    plt.savefig('T1.png', bbox_inches='tight')
-                    plt.close()
-                    plt.plot(ae_structure['T1_z'])
-                    plt.ylabel('t1_z')
-                    plt.savefig('T1_z.png', bbox_inches='tight')
-                    plt.close()
-                    plt.plot(ae_structure['ln_rho1'])
-                    plt.ylabel('ln_rho1')
-                    plt.savefig('ln_rho1.png', bbox_inches='tight')
-                    plt.close()
-
-                    plt.plot(np.exp(ae_structure['ln_rho1'] - avg_fields['ln_rho1_IVP']) - 1)
-                    plt.ylabel('exp(ln_rho1_new - ln_rho1_old) - 1')
-                    plt.savefig('ln_rho1_diff.png', bbox_inches='tight')
-                    plt.close()
-
                 # Update fields appropriately
+                ae_structure = self.local_to_global_ae(de_problem)
                 diff = self.update_simulation_fields(ae_structure, avg_fields)
                 
                 #communicate diff
@@ -448,8 +424,12 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 logger.info('Diff: {:.4e}, finished_ae? {}'.format(diff, self.finished_ae))
                 self.doing_ae = False
                 self.sim_time_start = self.solver.sim_time + self.sim_time_wait
-                self.bvp_threshold /= 10**(1./2)
                 self.min_bvp_time = self.later_bvp_time
+                
+                if self.bvp_threshold/2 < self.min_bvp_threshold:
+                    self.bvp_threshold = self.min_bvp_threshold
+                else:
+                    self.bvp_threshold /= 2
 
     def update_simulation_fields(self, de_problem):
         """ Updates simulation solver states """
@@ -459,13 +439,13 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         """ Communicate results of AE solve from process 0 to all """
         pass
 
-    def condition_flux(self, avg_fields):
-        """ Condition fluxes for solve, if appropriate """
-        return avg_fields
 
 class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
-    """ For Accelerated Evolution, 
-    Not well documented, WIP. """
+    """ 
+    Extends the AcceleratedEvolutionIVP class to include a specific implementation of AE for
+    the fully compressible equations. Theoretically, should work generally regardless of
+    atmosphere or diffusivitiy specification.
+    """
 
     def pre_loop_setup(self, *args, **kwargs):
         """ Extends parent class pre loop setup, keeps track of important thermo avgs """
@@ -474,58 +454,54 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         self.flow.add_property("plane_avg(T1_z)", name='T1_z_avg')
         self.flow.add_property("plane_avg(ln_rho1)", name='ln_rho1_avg')
         self.flow.add_property("plane_avg(rho_fluc)", name='rho_fluc_avg')
-
-    def condition_flux(self, avg_fields, thermal_BC_dict):
-        """ Calculate Xi = F_available / F_total_superadiabatic for AE """
-        Fconv_in = avg_fields['F_conv']
-        F_tot_in = avg_fields['F_tot_superad']
-        kappa    = avg_fields['kappa']
-        if thermal_BC_dict['flux_temp']:
-            F_avail  = -np.mean(kappa[0] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=0)['g']-self.AE_atmo.atmo_params['T_ad_z']))
-        elif thermal_BC_dict['temp_flux']:
-            Lz = self.AE_atmo.atmo_params['Lz']
-            F_avail  = -np.mean(kappa[-1] *(self.AE_atmo.atmo_fields['T0_z'].interpolate(z=Lz)['g']-self.AE_atmo.atmo_params['T_ad_z']))
-        avg_fields['F_avail'] = F_avail
-#        conv_frac = Fconv_in / F_tot_in
-        xi = F_avail/F_tot_in
-        avg_fields['Xi'] = xi
-        return avg_fields
+        self.flow.add_property("vol_avg(right(s1)-left(s1))", name='delta_s1')
 
     def local_to_global_ae(self, de_problem):
         """ Communicates AE solve info from process 0 to all processes """
         ae_profiles = OrderedDict()
         ae_profiles['T1'] = np.zeros(self.de_domain.resolution[0]*1)
+        ae_profiles['Xi'] = np.zeros(self.de_domain.resolution[0]*1)
         ae_profiles['T1_z'] = np.zeros(self.de_domain.resolution[0]*1)
         ae_profiles['ln_rho1'] = np.zeros(self.de_domain.resolution[0]*1)
         ae_profiles['Xi_mean'] = np.zeros(1)
-        full_xi = np.zeros(1)
+        ae_profiles['delta_s1'] = np.zeros(1)
+        full_scalar = np.zeros(1)
         full = np.zeros(self.de_domain.resolution[0]*1)
 
         if self.de_domain.domain.dist.comm_cart.rank == 0:
             T1 = de_problem.solver.state['T1']
+            Xi = de_problem.problem.parameters['Xi']
             T1_z = de_problem.solver.state['T1_z']
             ln_rho1 = de_problem.solver.state['ln_rho1']
-            print(de_problem.solver.state['M1']['g'])
-            import sys
-            sys.stdout.flush()
-            T1.set_scales(1, keep_data=True)
-            T1_z.set_scales(1, keep_data=True)
-            ln_rho1.set_scales(1, keep_data=True)
-            ae_profiles['T1'] = T1['g']
-            ae_profiles['T1_z'] = T1_z['g']
-            ae_profiles['ln_rho1'] = ln_rho1['g']
-            ae_profiles['Xi_mean'] = np.mean(de_problem.problem.parameters['Xi'].integrate()['g'])/de_problem.problem.parameters['Lz']
+            delta_s1 = de_problem.solver.state['delta_s1']
+            T1.set_scales(self.scale_ae_to_sim, keep_data=True)
+            Xi.set_scales(self.scale_ae_to_sim, keep_data=True)
+            T1_z.set_scales(self.scale_ae_to_sim, keep_data=True)
+            ln_rho1.set_scales(self.scale_ae_to_sim, keep_data=True)
+            ae_profiles['T1'] = np.copy(T1['g'])
+            ae_profiles['Xi'] = np.copy(Xi['g'])
+            ae_profiles['T1_z'] = np.copy(T1_z['g'])
+            ae_profiles['ln_rho1'] = np.copy(ln_rho1['g'])
+            ae_profiles['Xi_mean'] = np.mean(Xi.integrate()['g'])/de_problem.problem.parameters['Lz']
+            ae_profiles['delta_s1'] = np.mean(delta_s1['g'])
 
         self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1'], full, op=MPI.SUM)
         ae_profiles['T1'][:] = full*1.
+        full *= 0
+        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['Xi'], full, op=MPI.SUM)
+        ae_profiles['Xi'][:] = full*1.
         full *= 0
         self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1_z'], full, op=MPI.SUM)
         ae_profiles['T1_z'][:] = full*1.
         full *= 0
         self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['ln_rho1'], full, op=MPI.SUM)
         ae_profiles['ln_rho1'][:] = full*1.
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['Xi_mean'], full_xi, op=MPI.SUM)
-        ae_profiles['Xi_mean'] = full_xi*1.
+        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['Xi_mean'], full_scalar, op=MPI.SUM)
+        ae_profiles['Xi_mean'] = full_scalar*1.
+        full_scalar *= 0
+        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['delta_s1'], full_scalar, op=MPI.SUM)
+        ae_profiles['delta_s1'] = full_scalar*1.
+        full_scalar *= 0
         return ae_profiles
         
     def update_simulation_fields(self, ae_profiles, avg_fields):
@@ -535,81 +511,53 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
 
         u_scaling = ae_profiles['Xi_mean']**(1./3)
         thermo_scaling = u_scaling**(2)
-        
 
         #Calculate instantaneous thermo profiles
-        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg', 'rho_fluc_avg')]
+        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg', 'rho_fluc_avg', 'delta_s1')]
         T1_prof = self.flow.properties['T1_avg']['g']
         T1_z_prof = self.flow.properties['T1_z_avg']['g']
         ln_rho_prof = self.flow.properties['ln_rho1_avg']['g']
         rho_fluc_prof = self.flow.properties['rho_fluc_avg']['g']
+        old_delta_s1 = np.mean(self.flow.properties['delta_s1']['g'])
+        new_delta_s1 = ae_profiles['delta_s1']
 
         T1 = self.solver.state['T1']
         T1_z = self.solver.state['T1_z']
         ln_rho1 = self.solver.state['ln_rho1']
+
         #Adjust Temp
         T1.set_scales(1, keep_data=True)
         T1['g'] -= T1_prof
         T1.set_scales(1, keep_data=True)
-        T1['g'] *= thermo_scaling#[z_slices]
+        T1['g'] *= thermo_scaling
         T1.set_scales(1, keep_data=True)
         T1['g'] += ae_profiles['T1'][z_slices]
         T1.set_scales(1, keep_data=True)
-#        new_T1 = np.copy(T1['g'])
         T1.differentiate('z', out=self.solver.state['T1_z'])
-
 
         #Adjust lnrho
         self.AE_atmo.atmo_fields['rho0'].set_scales(1, keep_data=True)
         rho0 = self.AE_atmo.atmo_fields['rho0']['g'][z_slices]
         ln_rho1.set_scales(1, keep_data=True)
         rho_full_flucs = rho0*(np.exp(ln_rho1['g']) - 1) - rho_fluc_prof
-        rho_full_flucs *= thermo_scaling#[z_slices]
+        rho_full_flucs *= thermo_scaling
         rho_full_new = rho_full_flucs + rho0*np.exp(ae_profiles['ln_rho1'])[z_slices]
         ln_rho1.set_scales(1, keep_data=True)
         ln_rho1['g']  = np.log(rho_full_new/rho0)
         ln_rho1.set_scales(1, keep_data=True)
 
-#        ln_rho1.set_scales(1, keep_data=True)
-#        ln_rho1['g'] -= ln_rho_prof
-#        ln_rho1.set_scales(1, keep_data=True)
-#        ln_rho1['g'] += ae_profiles['ln_rho1'][z_slices]
-#        ln_rho1.set_scales(1, keep_data=True)
-#        new_ln_rho1 = np.copy(ln_rho1['g'])
-
+        #Adjust velocity
         vel_fields = ['u', 'w']
-#        new_us = []
         if self.de_domain.dimensions == 3:
             vel_vields.append('v')
         for k in vel_fields:
             self.solver.state[k].set_scales(1, keep_data=True)
-            self.solver.state[k]['g'] *= u_scaling#[z_slices]
+            self.solver.state[k]['g'] *= u_scaling
             self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
             self.solver.state[k].set_scales(1, keep_data=True)
-#            new_us.append(np.copy(self.solver.state[k]['g']))
             self.solver.state['{:s}_z'.format(k)].set_scales(1, keep_data=True)
 
-#        for k in self.variables:
-#            self.solver.state[k]['g'] = 0
-#        self.solver.step(1e-10) #, trim=True)
-#
-#        T1.set_scales(1, keep_data=True)
-#        ln_rho1.set_scales(1, keep_data=True)
-#        T1['g'] = new_T1
-#        T1.differentiate('z', out=self.solver.state['T1_z'])
-#        ln_rho1['g'] = new_ln_rho1
-#        for i, k in enumerate(vel_fields):
-#            self.solver.state[k].set_scales(1, keep_data=True)
-#            self.solver.state[k]['g'] = new_us[i]
-#            self.solver.state[k].differentiate('z', out=self.solver.state['{:s}_z'.format(k)])
-
-        # % diff from ln_rho1. Would do T1, but T1 = 0 boundaries make it hard.
-
-        self.AE_atmo.atmo_fields['T0'].set_scales(1, keep_data=True)
-        T0 = self.AE_atmo.atmo_fields['T0']['g']
-        diff = (1 - (T0 + avg_fields['T1_IVP'])/(T0 + ae_profiles['T1']))/np.max(avg_fields['std_T1'])
-        print(diff)
-        return np.mean(np.abs(diff))
-#        diff = (1 - ae_profiles['Xi_mean'])
-#        return np.mean(np.abs(diff))
+        #See how much delta S over domain has changed.
+        diff = np.mean(np.abs(1 - new_delta_s1/old_delta_s1))
+        return diff
         

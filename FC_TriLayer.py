@@ -222,7 +222,7 @@ def FC_TriLayer_convection(input_dict):
     #Set up outputs
     output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
     analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
-                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode, volumes_output=True)
+                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)#, volumes_output=True)
 
     # Ensure good initial dt and setup CFL
     max_dt = output_dt
@@ -243,10 +243,11 @@ def FC_TriLayer_convection(input_dict):
         task_kwargs = {}
         pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
                             'min_bvp_time' : 10*atmosphere.atmo_params['t_buoy'], 
-                            'between_ae_wait_time' : 20*atmosphere.atmo_params['t_buoy'],
-                            'later_bvp_time' : 30*atmosphere.atmo_params['t_buoy'],
+                            'between_ae_wait_time' : 10*atmosphere.atmo_params['t_buoy'],
+                            'later_bvp_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'ae_convergence' : 1e-2, 
-                            'bvp_threshold' : 1e-2 
+                            'bvp_threshold' : 1e-2,
+                            'min_bvp_threshold' : 1e-3
                             }
         solve_args = (dt, CFL, data_dir, analysis_tasks)
         solve_kwargs = {    'task_args' : task_args,
