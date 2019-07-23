@@ -16,7 +16,7 @@ class FileReader:
 
     """
 
-    def __init__(self, run_dir, sub_dirs=['slices',], num_files=[None,], start_file=1, comm=MPI.COMM_WORLD):
+    def __init__(self, run_dir, sub_dirs=['slices',], num_files=[None,], start_file=1, comm=MPI.COMM_WORLD, **kwargs):
         """
         Initializes the file reader.
 
@@ -34,6 +34,7 @@ class FileReader:
             communicator over which to break upfiles evenly for even file tasks
         """
         self.run_dir = os.path.expanduser(run_dir)
+        self.sub_dirs = sub_dirs
         self.start_file = start_file
         self.file_lists = OrderedDict()
         self.comm = comm
@@ -47,6 +48,7 @@ class FileReader:
                     if n is not None and file_num > n: continue
                     files.append(['{:s}/{:s}/{:s}'.format(self.run_dir, d, f), file_num])
             self.file_lists[d], nums = zip(*sorted(files, key=lambda x: x[1]))
+        self._distribute_files(**kwargs)
 
     def _distribute_files(self, distribution='one', writes=20):
         """
@@ -66,7 +68,7 @@ class FileReader:
         """
         self.local_file_lists = OrderedDict()
         self.distribution_comms = OrderedDict()
-        for k, files in self.file_lists:
+        for k, files in self.file_lists.items():
             if distribution.lower() == 'even':
                 if len(files) <= self.comm.size:
                     if self.comm.rank >= len(files):
@@ -74,17 +76,18 @@ class FileReader:
                         self.distribution_comms[k] = None
                     else:
                         self.local_file_lists[k] = [files[self.comm.rank],]
-                        self.distribution_comms[k] = comm.Create(comm.GetGroup().Incl(np.arange(len(files))))
+                        self.distribution_comms[k] = self.comm.Create(self.comm.Get_group().Incl(np.arange(len(files))))
                 else:
                     files_per = len(files) / self.comm.size
                     excess_files = len(files) % self.comm.size
                     if self.comm.rank >= excess_files:
-                        self.local_file_lists[k] = list(files[self.comm.rank*files_per+excess_files:(self.comm.rank+1)*files_per+excess_files])
+                        print(self.comm.rank*files_per+excess_files, (self.comm.rank+1)*files_per+excess_files)
+                        self.local_file_lists[k] = list(files[int(self.comm.rank*files_per+excess_files):int((self.comm.rank+1)*files_per+excess_files)])
                     else:
-                        self.local_file_lists[k] = list(files[self.comm.rank*(files_per+1):(self.comm.rank+1)*(files_per+1)])
-                    self.distributions_comms[k] = self.comm
+                        self.local_file_lists[k] = list(files[int(self.comm.rank*(files_per+1)):int((self.comm.rank+1)*(files_per+1))])
+                    self.distribution_comms[k] = self.comm
             elif distribution.lower() == 'writes':
-                logger.info('NOT YET IMPLEMENTED')
+                logger.error('NOT YET IMPLEMENTED')
                 import sys
                 sys.exit()
                 file_writes, local_write = np.zeros(1), np.zeros(1)
@@ -102,19 +105,20 @@ class FileReader:
                         self.distribution_comms[k] = None
                     else:
                         self.local_file_lists[k] = files[start_file:end_file]
-                        self.distribution_comms[k] = comm.Create(comm.GetGroup().Incl(np.arange(np.ceil(assignments[-1]))))
+                        self.distribution_comms[k] = comm.Create(comm.Get_group().Incl(np.arange(np.ceil(assignments[-1]))))
 #                else: #more than one group per process
-    
-
-                
             
-            
-        
-
-    def read_tasks(self, sub_dir, tasks):
+    def read_file(self, filename, bases=[], tasks=[]):
         """ reads dedalus tasks """
-        pass
-
+        out_bases = OrderedDict()
+        out_tasks = OrderedDict()
+        with h5py.File(filename, 'r') as f:
+            for b in bases:
+                out_bases[b] = f['scales'][b]['1.0'].value
+            out_writenum = f['scales']['write_number'].value
+            for t in tasks:
+                out_tasks[t] = f['tasks'][t].value
+        return out_bases, out_tasks, out_writenum
 
 if __name__ == '__main__':
     FileReader('FC_poly_Ra1e3_Pr1_n3_eps1e-4_a4_2D_Tflux_temp_Vstress_free_64x128_AE')
