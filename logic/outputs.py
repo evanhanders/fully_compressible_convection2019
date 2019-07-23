@@ -69,7 +69,7 @@ def initialize_output(de_domain, de_problem, data_dir,
         analysis_tasks['slices'] = slices
 
     if de_domain.dimensions == 3:
-        Lx, Ly, Lz = de_domain.resolution
+        Lx, Ly, Lz = de_domain.bases[0].interval[-1], de_domain.bases[1].interval[-1], de_domain.atmosphere.atmo_params['Lz']
         slices = de_problem.solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=output_dt, max_writes=max_writes, mode=mode)
         slices.add_task("interp(s_full,         y={})".format(Ly/2), name='s')
         slices.add_task("interp(s_full,         z={})".format(0.95*Lz), name='s near top')
@@ -90,4 +90,36 @@ def initialize_output(de_domain, de_problem, data_dir,
             analysis_tasks['volumes'] = analysis_volume
 
     return analysis_tasks
+
+def ae_initialize_output(*args, **kwargs):
+    analysis_tasks = initialize_output(*args, **kwargs)
+    de_domain, de_problem, data_dir = args
+
+    if 'max_writes' not in kwargs.keys(): kwargs['max_writes']=20
+    if 'mode' not in kwargs.keys(): kwargs['mode'] = 'overwrite'
+
+
+    analysis_ae = de_problem.solver.evaluator.add_file_handler(data_dir+"ae_outs", max_writes=kwargs['max_writes'], parallel=False, sim_dt=kwargs['output_dt'], mode=kwargs['mode'])
+
+    analysis_ae.add_task("w", name="w_volume")
+    analysis_ae.add_task("F_conv_z", name="F_conv_z_volume")
+    analysis_ae.add_task("enstrophy", name="enstrophy_volume")
+
+    Lz = de_domain.atmosphere.atmo_params['Lz']
+    analysis_ae.add_task("interp(u, z={})".format(0.95*Lz), name='u_near_top')
+    analysis_ae.add_task("interp(u, z={})".format(0.5*Lz),  name='u_midplane')
+    analysis_ae.add_task("interp(u, z={})".format(0.05*Lz), name='u_near_bot')
+
+    analysis_ae.add_task("plane_avg(s_full)", name="s_full_prof")
+    analysis_ae.add_task("plane_avg(F_conv_z + F_cond_z - F_cond_ad_z)", name="Nu_numerator_prof")
+    analysis_ae.add_task("plane_avg(F_cond0_z - F_cond_ad_z)", name="Nu_denominator_prof")
+    analysis_ae.add_task("plane_avg(Pe_rms)", name="Pe_rms_prof")
+
+    analysis_ae.add_task("right(s_full) - left(s_full)", name='delta_s')
+
+    analysis_tasks['ae_outs'] = analysis_ae
+
+    return analysis_tasks
+
+
 

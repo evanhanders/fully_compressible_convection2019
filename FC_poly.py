@@ -43,6 +43,7 @@ Options:
     --no_join                  If flagged, don't join files at end of run
 
     --ae                       Accelerated evolution
+    --ae_outs                  Output Accelerated evolution comparison tasks
 
 """
 def name_case(input_dict):
@@ -124,7 +125,7 @@ def FC_polytropic_convection(input_dict):
     from logic.experiments   import CompressibleConvection
     from logic.problems      import DedalusIVP, FCAcceleratedEvolutionIVP
     from logic.equations     import KappaMuFCE
-    from logic.outputs       import initialize_output
+    from logic.outputs       import initialize_output, ae_initialize_output
     from logic.checkpointing import Checkpoint
     from logic.field_averager import AveragerFCAE, AveragerFCStructure
 
@@ -212,7 +213,12 @@ def FC_polytropic_convection(input_dict):
 
     #Set up outputs
     output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
-    analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
+
+    if args['--ae_outs']:
+        analysis_tasks = ae_initialize_output(de_domain, de_problem, data_dir, 
+                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)# volumes_output=True)
+    else:
+        analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
                                        output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)# volumes_output=True)
 
     # Ensure good initial dt and setup CFL
