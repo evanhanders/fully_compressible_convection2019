@@ -219,7 +219,7 @@ def FC_polytropic_convection(input_dict):
     max_dt = output_dt
     if dt is None:
         dt = max_dt  
-    cfl_safety = 0.2
+    cfl_safety = 0.15
     CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:
@@ -234,7 +234,7 @@ def FC_polytropic_convection(input_dict):
         task_kwargs = {}
         pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
                             'min_bvp_time' : 10*atmosphere.atmo_params['t_buoy'], 
-                            'between_ae_wait_time' : 10*atmosphere.atmo_params['t_buoy'],
+                            'between_ae_wait_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'later_bvp_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'ae_convergence' : 1e-2, 
                             'bvp_threshold' : 1e-2,

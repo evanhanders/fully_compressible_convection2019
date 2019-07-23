@@ -225,9 +225,9 @@ def FC_TriLayer_convection(input_dict):
                                        output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)#, volumes_output=True)
 
     # Ensure good initial dt and setup CFL
-    max_dt = output_dt
+    max_dt = min((0.2, float(args['--output_dt'])))*atmosphere.atmo_params['t_buoy']
     if dt is None:
-        dt = max_dt  
+        dt = max_dt
     cfl_safety = 0.2
     CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
