@@ -284,7 +284,7 @@ class TriLayerIH(IdealGasAtmosphere):
 
         s0 = de_domain.domain.new_field()
         s0['g'] = self.atmo_params['Cp']*(1/self.atmo_params['gamma'])*(np.log(self.atmo_fields['T0']['g']) - (self.atmo_params['gamma']-1)*self.atmo_fields['ln_rho0']['g'])
-        self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_RB+self.L_c)['g'])-np.mean(s0.interpolate(z=self.L_RB)['g']))
+        self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_RB+self.L_C)['g'])-np.mean(s0.interpolate(z=self.L_RB)['g']))
         
         self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
         self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
