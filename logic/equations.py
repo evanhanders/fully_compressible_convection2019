@@ -74,8 +74,8 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
         self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
         self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u ) = (scale_c)*(-UdotGrad(ln_rho1, dz(ln_rho1)))"))
-        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) + T1*ln_rho0_z - L_visc_w + L_w_force) = "
-                                                                "(scale_m_z)*(- UdotGrad(w, w_z) - T1*dz(ln_rho1) + R_visc_w + R_w_force)"))
+        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) - L_visc_w + L_w_force) = "
+                                                                "(scale_m_z)*(- UdotGrad(w, w_z) - T1*(ln_rho0_z + dz(ln_rho1)) + R_visc_w + R_w_force)"))
         self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u + L_u_force) = "
                                                                    "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u + R_u_force)"))
         if self.de_domain.dimensions == 3:
@@ -337,10 +337,11 @@ class KappaMuFCE(FullyCompressibleEquations):
 
         self.de_problem.problem.substitutions['scale_c']    = '(T0)'
         if type(self.atmosphere) in (Polytrope,):# TriLayerIH): #Makes polytropes a low bandwidth problem
-            self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
+#            self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
             #self.de_problem.problem.substitutions['scale_m']    = '(T0)'
             #self.de_problem.problem.substitutions['scale_e']    = '(T0)'
             self.de_problem.problem.parameters['scale_m']    = 1
+            self.de_problem.problem.parameters['scale_m_z']    = 1
             self.de_problem.problem.parameters['scale_e']    = 1
 
             self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
@@ -352,10 +353,10 @@ class KappaMuFCE(FullyCompressibleEquations):
             self.de_problem.problem.parameters['scale_m']    = 1
             self.de_problem.problem.parameters['scale_e']    = 1
 
-            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u/rho0)"
-            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v/rho0)"
-            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w/rho0)"                
-            self.de_problem.problem.substitutions['L_thermal'] = "(thermal/rho0)"
+            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
+            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v)"
+            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w)"                
+            self.de_problem.problem.substitutions['L_thermal'] = "(thermal)"
 
         self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - L_visc_u)"
         self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - L_visc_v)"

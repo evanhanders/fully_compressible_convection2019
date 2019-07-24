@@ -228,14 +228,14 @@ def FC_TriLayer_convection(input_dict):
     max_dt = min((0.2, float(args['--output_dt'])))*atmosphere.atmo_params['t_buoy']
     if dt is None:
         dt = max_dt
-    cfl_safety = 0.2
+    cfl_safety = 0.15
     CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:
         CFL.add_velocities(('u', 'v', 'w'))
     else:
         CFL.add_velocities(('u', 'w'))
-   
+
     # Solve the IVP.
     if args['--ae']:
         task_args = (thermal_BC,)
