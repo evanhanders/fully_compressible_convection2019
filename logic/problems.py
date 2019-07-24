@@ -142,9 +142,9 @@ class DedalusIVP(DedalusProblem):
         """
     
         # Flow properties
-        flow = flow_tools.GlobalFlowProperty(self.solver, cadence=1)
+        self.flow = flow_tools.GlobalFlowProperty(self.solver, cadence=1)
         for f in track_fields:
-            flow.add_property(f, name=f)
+            self.flow.add_property(f, name=f)
 
         self.pre_loop_setup(*pre_loop_args, **pre_loop_kwargs)
 
@@ -168,9 +168,9 @@ class DedalusIVP(DedalusProblem):
                 self.special_tasks(*task_args, **task_kwargs)
 
                 #reporting string
-                self.iteration_report(dt, flow, track_fields, time_div=time_div)
+                self.iteration_report(dt, track_fields, time_div=time_div)
 
-                if not np.isfinite(flow.grid_average(track_fields[0])):
+                if not np.isfinite(self.flow.grid_average(track_fields[0])):
                     break
         except:
             raise
@@ -208,7 +208,7 @@ class DedalusIVP(DedalusProblem):
                 logger.info('Run time: {:f} cpu-hr'.format(main_loop_time/60/60*self.de_domain.domain.dist.comm_cart.size))
                 logger.info('iter/sec: {:f} (main loop only)'.format(n_iter_loop/main_loop_time))
     
-    def iteration_report(self, dt, flow, track_fields, time_div=None):
+    def iteration_report(self, dt, track_fields, time_div=None):
         """
         This function is called every iteration of the simulation loop and provides some text output
         to the user to tell them about the current status of the simulation. This function is meant
@@ -218,10 +218,8 @@ class DedalusIVP(DedalusProblem):
         ----------
         dt  : float
             The current timestep of the simulation
-        flow : GlobalFlowProperty object, from dedalus
-            Allows instantaneous tracking access to simulation values
         track_fields : List of strings
-            The fields being tracked by flow
+            The fields being tracked by self.flow
         time_div            : float, optional
             A siulation time to divide the normal time by for easier output tracking
         """
@@ -231,7 +229,7 @@ class DedalusIVP(DedalusProblem):
             log_string += ' ({:8.3e})'.format(self.solver.sim_time/time_div)
         log_string += ', dt: {:8.3e}, '.format(dt)
         for f in track_fields:
-            log_string += '{}: {:8.3e}/{:8.3e} '.format(f, flow.grid_average(f), flow.max(f))
+            log_string += '{}: {:8.3e}/{:8.3e} '.format(f, self.flow.grid_average(f), self.flow.max(f))
         logger.info(log_string)
 
     def special_tasks(self, *args, **kwargs):
@@ -346,8 +344,6 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         else:
             self.z_rank = self.de_domain.domain.dist.comm_cart.rank % self.de_domain.domain.dist.mesh[-1] 
 
-        self.flow = flow_tools.GlobalFlowProperty(self.solver, cadence=1)
-        self.flow.add_property('Pe_rms', name='Pe')
 
     def check_averager_convergence(self):
         """
@@ -377,7 +373,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
             A dictionary of keywords containing info about the thermal boundary conditions used in the problem.
         """
         # Don't do anything AE related if Pe < 1
-        if self.flow.grid_average('Pe') < 1 and not self.Pe_switch:
+        if self.flow.grid_average('Pe_rms') < 1 and not self.Pe_switch:
             return 
         elif not self.Pe_switch:
             self.sim_time_start += self.solver.sim_time
