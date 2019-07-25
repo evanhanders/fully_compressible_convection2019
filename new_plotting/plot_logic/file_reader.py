@@ -57,7 +57,7 @@ class FileReader:
 
         'even'   : evenly distribute over all mpi processes
         'writes' : Split up files based on the number of writes in each file
-        'one'    : First process takes all file tasks
+        'single' : First process takes all file tasks
 
         Arguments:
         ----------
@@ -69,7 +69,13 @@ class FileReader:
         self.local_file_lists = OrderedDict()
         self.distribution_comms = OrderedDict()
         for k, files in self.file_lists.items():
-            if distribution.lower() == 'even':
+            if distribution.lower() == 'single':
+                self.distribution_comms[k] = None
+                if self.comm.rank >= 1:
+                    self.local_file_lists[k] = None
+                else:
+                    self.local_file_lists[k] = files
+            elif distribution.lower() == 'even':
                 if len(files) <= self.comm.size:
                     if self.comm.rank >= len(files):
                         self.local_file_lists[k] = None
@@ -115,10 +121,11 @@ class FileReader:
         with h5py.File(filename, 'r') as f:
             for b in bases:
                 out_bases[b] = f['scales'][b]['1.0'].value
-            out_writenum = f['scales']['write_number'].value
+            out_write_num = f['scales']['write_number'].value
+            out_sim_time = f['scales']['sim_time'].value
             for t in tasks:
                 out_tasks[t] = f['tasks'][t].value
-        return out_bases, out_tasks, out_writenum
+        return out_bases, out_tasks, out_write_num, out_sim_time
 
 if __name__ == '__main__':
     FileReader('FC_poly_Ra1e3_Pr1_n3_eps1e-4_a4_2D_Tflux_temp_Vstress_free_64x128_AE')
