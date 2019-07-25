@@ -49,7 +49,7 @@ class PlotGrid:
         """ col number indexing starts at 0 """
         for i in range(self.nrows):
             del self.axes['ax_{}-{}'.format(col_num, i)]
-        self.axes['ax_0-{}'.format(row_num)] = plt.subplot(self.gs.new_subplotspec(
+        self.axes['ax_{}-0'.format(col_num)] = plt.subplot(self.gs.new_subplotspec(
                                                     (0, col_num*(self.col_size+self.padding)),
                                                     1000, self.col_size))
 
@@ -68,3 +68,25 @@ class ColorbarPlotGrid(PlotGrid):
                 self.cbar_axes['ax_{}-{}'.format(i,j)] = plt.subplot(self.gs.new_subplotspec(
                                                      (fl_int(j*(self.row_size+self.padding)), fl_int(i*(self.col_size+self.padding))),
                                                      fl_int(self.row_size*0.1), fl_int(self.col_size)))
+    def full_row_ax(self, row_num):
+        """ row number indexing starts at 0 """
+        for i in range(self.ncols):
+            del self.axes['ax_{}-{}'.format(i, row_num)]
+            self.axes['ax_0-{}'.format(row_num)] = plt.subplot(self.gs.new_subplotspec(
+                                                (fl_int(row_num*(self.row_size+self.padding) + 0.2*self.row_size), 0),
+                                                fl_int(self.row_size*0.8), 1000))
+            self.cbar_axes['ax_0-{}'.format(row_num)] = plt.subplot(self.gs.new_subplotspec(
+                                                     (fl_int(row_num*(self.row_size+self.padding)), 0),
+                                                     fl_int(self.row_size*0.1), 1000))
+
+    def full_col_ax(self, col_num):
+        """ col number indexing starts at 0 """
+        for i in range(self.nrows):
+            del self.axes['ax_{}-{}'.format(col_num, i)]
+        self.axes['ax_{}-0'.format(col_num)] = plt.subplot(self.gs.new_subplotspec(
+                                            (0, fl_int(col_num*(self.col_size+self.padding))),
+                                            1000, fl_int(self.col_size)))
+        self.cbar_axes['ax_{}-0'.format(col_num)] = plt.subplot(self.gs.new_subplotspec(
+                                                     (0, fl_int(col_num*(self.col_size+self.padding))),
+                                                     1000, fl_int(self.col_size)))
+
