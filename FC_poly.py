@@ -225,7 +225,7 @@ def FC_polytropic_convection(input_dict):
     max_dt = output_dt
     if dt is None:
         dt = max_dt  
-    cfl_safety = 0.15
+    cfl_safety = 0.1
     CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:

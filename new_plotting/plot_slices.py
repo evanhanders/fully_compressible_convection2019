@@ -42,6 +42,7 @@ if root_dir is None:
 fig_name   = args['--fig_name']
 
 plotter = SlicePlotter(root_dir, file_dir='slices', fig_name=fig_name, start_file=start_file, n_files=n_files)
+convergence_plotter = SlicePlotter(root_dir, file_dir='slices', fig_name=fig_name, start_file=start_file, n_files=n_files)
 
 plotter_kwargs = { 'col_in' : int(args['--col_inch']), 'row_in' : int(args['--row_inch']) }
 

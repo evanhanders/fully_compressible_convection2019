@@ -1,6 +1,8 @@
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+matplotlib.rcParams.update({'font.size': 9})
 
 from collections import OrderedDict
 
@@ -63,6 +65,11 @@ class ScalarPlotter():
         for f in self.fields: self.trace_data[f] = np.concatenate(tuple(self.trace_data[f]))
         self.trace_data['sim_time'] = np.concatenate(tuple(self.trace_data['sim_time']))
 
+    def _clear_figures(self):
+        for f in self.figures:
+            for i, k in enumerate(f.panels): 
+                f.axes[k].clear()
+
     def _save_traces(self):
         if self.reader.local_file_lists[self.reader.sub_dirs[0]] is None:
             return
@@ -73,13 +80,16 @@ class ScalarPlotter():
 
     def plot_figures(self, dpi=200):
         self._read_fields()
+        self._clear_figures()
 
         for j, fig in enumerate(self.figures):
             for i, k in enumerate(fig.panels):
                 ax = fig.axes[k]
                 for fd in fig.panel_fields[i]:
-                    print(self.trace_data['sim_time'], self.trace_data[fd])
                     ax.plot(self.trace_data['sim_time'], self.trace_data[fd], label=fd)
+                ax.set_xlim(self.trace_data['sim_time'].min(), self.trace_data['sim_time'].max())
+                ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%0.1e'))
+                ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%0.1e'))
                 ax.legend(fontsize=8, loc='best')
             ax.set_xlabel('sim_time')
             if fig.fig_name is None:
@@ -90,3 +100,30 @@ class ScalarPlotter():
 
             fig.fig.savefig('{:s}/{:s}.png'.format(self.out_dir, fig_name), dpi=dpi, bbox_inches='tight')
         self._save_traces()
+
+class ScalarConvergencePlotter(ScalarPlotter):
+
+    def plot_figures(self, dpi=200):
+        self._read_fields()
+        self._clear_figures()
+
+        for j, fig in enumerate(self.figures):
+            for i, k in enumerate(fig.panels):
+                ax = fig.axes[k]
+                ax.grid(which='major')
+                for fd in fig.panel_fields[i]:
+                    final_mean = np.mean(self.trace_data[fd][-int(0.1*len(self.trace_data[fd])):])
+                    ax.plot(self.trace_data['sim_time'], np.abs(1 - self.trace_data[fd]/final_mean), label="1 - ({:s})/(mean)".format(fd))
+                ax.set_yscale('log')
+                ax.set_xlim(self.trace_data['sim_time'].min(), self.trace_data['sim_time'].max())
+                ax.legend(fontsize=8, loc='best')
+                ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%0.1e'))
+                ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%0.1e'))
+            ax.set_xlabel('sim_time')
+            if fig.fig_name is None:
+                fig_name = self.fig_name + '_{}'.format(j)
+            else:
+                fig_name = fig.fig_name
+
+
+            fig.fig.savefig('{:s}/{:s}_convergence.png'.format(self.out_dir, fig_name), dpi=dpi, bbox_inches='tight')

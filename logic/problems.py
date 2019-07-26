@@ -545,7 +545,7 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         #Adjust velocity
         vel_fields = ['u', 'w']
         if self.de_domain.dimensions == 3:
-            vel_vields.append('v')
+            vel_fields.append('v')
         for k in vel_fields:
             self.solver.state[k].set_scales(1, keep_data=True)
             self.solver.state[k]['g'] *= u_scaling

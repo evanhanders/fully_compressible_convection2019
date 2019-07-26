@@ -14,7 +14,7 @@ Options:
     --static_cbar                       If flagged, don't evolve the cbar with time
     --dpi=<dpi>                         Image pixel density [default: 200]
 
-    --col_inch=<in>                     Number of inches / column [default: 6]
+    --col_inch=<in>                     Number of inches / column [default: 4]
     --row_inch=<in>                     Number of inches / row [default: 3]
 
     --fig_type=<fig_type>               Type of figure to plot

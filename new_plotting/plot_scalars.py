@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 from docopt import docopt
 args = docopt(__doc__)
-from plot_logic.scalars import ScalarFigure, ScalarPlotter
+from plot_logic.scalars import ScalarFigure, ScalarPlotter, ScalarConvergencePlotter
 
 root_dir = args['--root_dir']
 fig_name  = args['--fig_name']
@@ -38,7 +38,7 @@ fig3 = ScalarFigure(1, 1, col_in=6, fig_name='flux_equil')
 fig3.add_field(0, 'flux_equilibration')
 
 # Energies
-fig4 = ScalarFigure(5, 1, col_in=4, row_in=1.5, fig_name='energies')
+fig4 = ScalarFigure(5, 1, col_in=6, row_in=2.5, fig_name='energies')
 fig4.add_field(0, 'KE')
 fig4.add_field(1, 'KE')
 fig4.add_field(0, 'IE_fluc')
@@ -48,7 +48,13 @@ fig4.add_field(3, 'PE_fluc')
 fig4.add_field(0, 'TE_fluc')
 fig4.add_field(4, 'TE_fluc')
 
+# Mass change
+fig5 = ScalarFigure(1, 1, col_in=6, fig_name='mass_integ_change')
+fig5.add_field(0, 'M1')
+
 # Load in figures and make plots
 plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
-plotter.load_figures([fig1, fig2, fig3, fig4])
-plotter.plot_figures(dpi=int(args['--dpi']))
+conv_plotter = ScalarConvergencePlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
+for p in [plotter, conv_plotter]:
+    p.load_figures([fig1, fig2, fig3, fig4, fig5])
+    p.plot_figures(dpi=int(args['--dpi']))
