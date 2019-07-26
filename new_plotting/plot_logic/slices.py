@@ -72,7 +72,7 @@ class SlicePlotter():
 
         for i, f in enumerate(self.reader.local_file_lists[self.reader.sub_dirs[0]]):
             if self.reader.comm.rank == 0:
-                print('on file {}/{}...'.format(i+1, len(self.reader.local_file_lists)))
+                print('on file {}/{}...'.format(i+1, len(self.reader.local_file_lists[self.reader.sub_dirs[0]])))
                 stdout.flush()
             bs, tsk, writenum, times = self.reader.read_file(f, bases=bases, tasks=tasks)
 
