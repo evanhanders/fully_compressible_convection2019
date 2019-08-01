@@ -4,6 +4,8 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+from mpi4py import MPI
+
 try:
     from functions import mpi_makedirs
 except:
@@ -159,6 +161,7 @@ class Polytrope(IdealGasAtmosphere):
             R : float
                 Ideal gas constant (P = R rho T)
         """
+        self.atmo_params['epsilon']  = epsilon
         self.atmo_params['m_ad']     = 1/(gamma - 1)
         self.atmo_params['m']        = self.atmo_params['m_ad'] - epsilon
         self.atmo_params['g']        = R * (self.atmo_params['m'] + 1)
@@ -218,6 +221,30 @@ class Polytrope(IdealGasAtmosphere):
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
         logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
 
+
+class DepthFinder:
+
+    def __init__(self, nz=256):
+        # Bases and domain
+        import dedalus.public as de
+        z_basis = de.Chebyshev('z', nz, interval=(0, 1), dealias=1)
+        domain = de.Domain([z_basis], np.float64, comm=MPI.COMM_SELF)
+        self.T0         = domain.new_field()
+        self.T0_z       = domain.new_field()
+        self.ln_rho0_z  = domain.new_field()
+        self.H_rho      = domain.new_field()
+        self.ln_rho0    = domain.new_field()
+        self.z = domain.grid(0)
+
+    def atmosphere_solve(self, g, Lz):
+        """ Given T0, gravity, and the true domain depth, solves hydrostatic equilibrium for ln_rho """
+        self.T0.differentiate('z', out=self.T0_z)
+        self.T0_z['g'] /= Lz
+        self.ln_rho0_z['g'] = -(self.T0_z['g'] + g)/self.T0['g']
+        self.ln_rho0_z.antidifferentiate('z', ('right', 0), out=self.ln_rho0)
+        self.ln_rho0['g'] *= Lz
+        self.H_rho['g'] = -1/self.ln_rho0_z['g']
+
 class TriLayerIH(IdealGasAtmosphere):
     """
     An extension of an IdealGasAtmosphere for a very simple, 3-layer RZ/CZ/RZ stratification,
@@ -227,7 +254,7 @@ class TriLayerIH(IdealGasAtmosphere):
     def __init__(self, *args, **kwargs):
         super(TriLayerIH, self).__init__(*args, **kwargs)
 
-    def _prepare_scalar_info(self, epsilon=1e-4, n_rho_cz=3, n_rho_rzT=4, n_rho_rzB=0.5, gamma=5./3, R=1):
+    def _prepare_scalar_info(self, epsilon=1e-4, n_rho_cz=3, n_rho_rzT=4, n_rho_rzB=0.5, gamma=5./3, R=1, tolerance=1e-12):
         """ Sets up scalar parameters in the atmosphere.
 
         Parameters
@@ -242,12 +269,57 @@ class TriLayerIH(IdealGasAtmosphere):
         self.atmo_params['n_rho_rzT']       = n_rho_rzT
         self.atmo_params['n_rho_rzB']       = n_rho_rzB
         self.atmo_params['n_rho_cz']        = n_rho_cz
-        self.atmo_params['m_ad'] = 1/(gamma-1)
-        self.atmo_params['Lz'] = self.Lz = np.exp((n_rho_rzT + n_rho_rzB + n_rho_cz)/self.atmo_params['m_ad']) - 1
-        self.atmo_params['L_RT'] = self.L_RT = np.exp((n_rho_rzT)/self.atmo_params['m_ad']) - 1
-        self.atmo_params['L_C'] = self.L_C = np.exp((n_rho_rzT + n_rho_cz)/self.atmo_params['m_ad']) - 1 - self.L_RT
-        self.atmo_params['L_RB'] = self.L_RB = self.Lz - self.L_C - self.L_RT
-        self.atmo_params['epsilon'] = epsilon
+        self.atmo_params['m_ad'] = self.m_ad = 1/(gamma-1)
+        self.atmo_params['g']    = self.g =  gamma*self.m_ad
+        self.atmo_params['epsilon'] = self.epsilon = epsilon
+
+        Ls = None
+        if MPI.COMM_WORLD.rank == 0:
+            finder = DepthFinder()
+
+            L_RT = np.exp(n_rho_rzT/self.m_ad) - 1
+            L_C  = np.exp((n_rho_cz+n_rho_rzT)/self.m_ad) - 1 - L_RT
+            L_RB = np.exp((n_rho_cz+n_rho_rzT+n_rho_rzB)/self.m_ad) - 1 - L_RT - L_C
+
+            max_diff = 1
+            while max_diff > tolerance:
+                Lz = L_RB + L_C + L_RT
+                print('max_diff : {:.2e}'.format(max_diff))
+                print('Lz: {:.2g}, Ls: {:.2g}, {:.2g}, {:.2g}'.format(L_RB+L_C+L_RT, L_RB, L_C, L_RT))
+
+                A = 1./6
+                B = -(L_RB + L_C/2)/2
+                C = L_RB*(L_RB+L_C)/2
+                D = -(A*Lz**3 + B*Lz**2 + C*Lz)
+                z = Lz*finder.z
+                finder.T0['g'] = 1 - (z-Lz) + self.epsilon*(A*z**3 + B*z**2 + C*z + D)
+                finder.atmosphere_solve(self.g, Lz)
+
+                H_rho_bot_rzB = np.mean(finder.H_rho.interpolate(z=0)['g'])
+                H_rho_bot_cz  = np.mean(finder.H_rho.interpolate(z=L_RB/Lz)['g'])
+                H_rho_bot_rzT = np.mean(finder.H_rho.interpolate(z=(L_RB+L_C)/Lz)['g'])
+
+                this_n_rho_rzT = np.mean(finder.ln_rho0.interpolate(z=(L_RB+L_C)/Lz)['g'])
+                this_n_rho_cz  = np.mean(finder.ln_rho0.interpolate(z=(L_RB)/Lz)['g']) - n_rho_rzT
+                this_n_rho_rzB = np.mean(finder.ln_rho0.interpolate(z=0)['g']) - n_rho_cz - n_rho_rzT
+
+                delta_nrho_rzT = n_rho_rzT - this_n_rho_rzT
+                delta_nrho_cz  = n_rho_cz  - this_n_rho_cz
+                delta_nrho_rzB = n_rho_rzB - this_n_rho_rzB
+
+                delta_L_RB, delta_L_C, delta_L_RT =  delta_nrho_rzB*H_rho_bot_rzB, delta_nrho_cz*H_rho_bot_cz, delta_nrho_rzT*H_rho_bot_rzT
+
+                max_diff = np.abs(np.array((delta_L_RB/L_RB, delta_L_C/L_C, delta_L_RT/L_RT))).max()
+                L_RB += delta_L_RB
+                L_C  += delta_L_C
+                L_RT += delta_L_RT
+            Lz = L_RB + L_C + L_RT
+            Ls = (Lz, L_RB, L_C, L_RT)
+        Lz, L_RB, L_C, L_RT = MPI.COMM_WORLD.bcast(Ls, root=0)
+        self.atmo_params['Lz'] = self.Lz = Lz
+        self.atmo_params['L_RT'] = self.L_RT = L_RT
+        self.atmo_params['L_C'] = self.L_C = L_C
+        self.atmo_params['L_RB'] = self.L_RB = L_RB
         super(TriLayerIH, self)._set_thermodynamics(gamma=gamma, R=R)
 
     def build_atmosphere(self, de_domain):

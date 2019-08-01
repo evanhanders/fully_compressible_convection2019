@@ -73,7 +73,7 @@ class FullyCompressibleEquations(Equations):
             self.de_problem.problem.add_equation("dz(v) - v_z = 0")
         self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
         self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
-        self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u ) = (scale_c)*(-UdotGrad(ln_rho1, dz(ln_rho1)))"))
+        self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u) = (scale_c)*(- UdotGrad(ln_rho1, dz(ln_rho1)))"))
         self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) - L_visc_w + L_w_force) = "
                                                                 "(scale_m_z)*(- UdotGrad(w, w_z) - T1*(ln_rho0_z + dz(ln_rho1)) + R_visc_w + R_w_force)"))
         self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u + L_u_force) = "
@@ -241,6 +241,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['P1']       = '(P - P0)'
         self.de_problem.problem.substitutions['vel_rms']  = 'sqrt(u**2 + v**2 + w**2)'
         self.de_problem.problem.substitutions['s1']       = '(Cv*log(1+T1/T0) - R*ln_rho1)'
+        self.de_problem.problem.substitutions['s0']       = '(Cv*log(T0) - R*ln_rho0)'
         self.de_problem.problem.substitutions['s_full']   = '(Cv*log(T_full) - R*(ln_rho0 + ln_rho1))'
 
     def _set_output_subs(self):
@@ -340,9 +341,9 @@ class KappaMuFCE(FullyCompressibleEquations):
 #            self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
             #self.de_problem.problem.substitutions['scale_m']    = '(T0)'
             #self.de_problem.problem.substitutions['scale_e']    = '(T0)'
-            self.de_problem.problem.parameters['scale_m']    = 1
+            self.de_problem.problem.parameters['scale_m']      = 1
             self.de_problem.problem.parameters['scale_m_z']    = 1
-            self.de_problem.problem.parameters['scale_e']    = 1
+            self.de_problem.problem.parameters['scale_e']      = 1
 
             self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
             self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v)"
