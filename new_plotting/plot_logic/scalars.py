@@ -113,6 +113,7 @@ class ScalarConvergencePlotter(ScalarPlotter):
                 ax.grid(which='major')
                 for fd in fig.panel_fields[i]:
                     final_mean = np.mean(self.trace_data[fd][-int(0.1*len(self.trace_data[fd])):])
+                    print(final_mean, self.trace_data[fd])
                     ax.plot(self.trace_data['sim_time'], np.abs(1 - self.trace_data[fd]/final_mean), label="1 - ({:s})/(mean)".format(fd))
                 ax.set_yscale('log')
                 ax.set_xlim(self.trace_data['sim_time'].min(), self.trace_data['sim_time'].max())

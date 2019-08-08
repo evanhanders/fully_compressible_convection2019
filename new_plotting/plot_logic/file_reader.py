@@ -84,10 +84,9 @@ class FileReader:
                         self.local_file_lists[k] = [files[self.comm.rank],]
                         self.distribution_comms[k] = self.comm.Create(self.comm.Get_group().Incl(np.arange(len(files))))
                 else:
-                    files_per = len(files) / self.comm.size
-                    excess_files = len(files) % self.comm.size
+                    files_per = int(np.floor(len(files) / self.comm.size))
+                    excess_files = int(len(files) % self.comm.size)
                     if self.comm.rank >= excess_files:
-                        print(self.comm.rank*files_per+excess_files, (self.comm.rank+1)*files_per+excess_files)
                         self.local_file_lists[k] = list(files[int(self.comm.rank*files_per+excess_files):int((self.comm.rank+1)*files_per+excess_files)])
                     else:
                         self.local_file_lists[k] = list(files[int(self.comm.rank*(files_per+1)):int((self.comm.rank+1)*(files_per+1))])

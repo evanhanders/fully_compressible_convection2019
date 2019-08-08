@@ -474,24 +474,24 @@ class AEKappaMuFCE(Equations):
                 if np.min(F_avail['g']) > 0:
                     self.de_problem.problem.parameters['offset'] = offset = 0
                 else:
-                    avail_min = np.min(F_avail['g'])
-                    tot_min = np.min(field_dict['F_tot'] - flux_ad)
-                    true_min = np.min((avail_min, tot_min))
-                    self.de_problem.problem.parameters['offset'] = offset = -2*true_min
+                    avail_max = np.max(F_avail['g'])
+                    tot_max = np.max(field_dict['F_tot'] - flux_ad)
+                    true_max = np.max((avail_max, tot_max))
+                    self.de_problem.problem.parameters['offset'] = offset = true_max/10
 
 
                 Xi = self.de_domain.new_ncc()
                 Xi.set_scales(scale_ae_to_sim, keep_data=False)
                 F_avail.set_scales(scale_ae_to_sim, keep_data=True)
-                Xi['g'] = (F_avail['g'] + offset) / (field_dict['F_tot'] + offset - flux_ad)
-                if offset != 0:
-                    F_avail.set_scales(scale_ae_to_sim, keep_data=True)
-                    Xi.set_scales(scale_ae_to_sim, keep_data=True)
-                    true_xi = F_avail['g']/(field_dict['F_tot'] - flux_ad)
-                    xi_factor = (true_xi - 1) / (Xi['g'] - 1)
-
-                    good_vals = field_dict['F_conv'] > 0.25*np.max(field_dict['F_conv'])
-                    mult_factor = np.median(xi_factor[good_vals])
+                Xi['g'] = np.sqrt((F_avail['g']**2 + offset**2) / ((field_dict['F_tot'] - flux_ad)**2 + offset**2))
+#                if offset != 0:
+#                    F_avail.set_scales(scale_ae_to_sim, keep_data=True)
+#                    Xi.set_scales(scale_ae_to_sim, keep_data=True)
+#                    true_xi = F_avail['g']/(field_dict['F_tot'] - flux_ad)
+#                    xi_factor = (true_xi - 1) / (Xi['g'] - 1)
+#
+#                    good_vals = field_dict['F_conv'] > 0.25*np.max(field_dict['F_conv'])
+#                    mult_factor = np.median(xi_factor[good_vals])
 #                    max_loc = np.argmax(field_dict['F_tot'] - flux_ad)
 #                    min_loc = np.argmin(field_dict['F_tot'] - flux_ad)
 #                    mult_factor_max =  (F_avail['g'][max_loc]/(field_dict['F_tot'][max_loc] - flux_ad) - 1) / (Xi['g'][max_loc] - 1)
@@ -499,10 +499,9 @@ class AEKappaMuFCE(Equations):
 #                    Xi.set_scales(scale_ae_to_sim, keep_data=True)
 #                    mult_factor_min =  (F_avail['g'][min_loc]/(field_dict['F_tot'][min_loc] - flux_ad) - 1) / (Xi['g'][min_loc] - 1)
 #                    mult_factor = np.max((mult_factor_max, mult_factor_min))
-                    print(xi_factor, xi_factor[good_vals], mult_factor)
-                    Xi['g'] -= 1
-                    Xi['g'] *= mult_factor
-                    Xi['g'] += 1
+#                    Xi['g'] -= 1
+#                    Xi['g'] *= mult_factor
+#                    Xi['g'] += 1
 
                 self.de_problem.problem.parameters['Xi'] = Xi
 

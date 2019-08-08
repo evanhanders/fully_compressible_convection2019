@@ -9,9 +9,9 @@ Options:
     --Prandtl=<Prandtl>        Prandtl number = nu/kappa [default: 1]
     --n_rho_cz=<n>             Number of density scale heights of CZ [default: 1]
     --n_rho_rzT=<n>             Number of density scale heights of CZ [default: 2]
-    --n_rho_rzB=<n>             Number of density scale heights of CZ [default: 0.5]
+    --n_rho_rzB=<n>             Number of density scale heights of CZ [default: 1]
     --epsilon=<epsilon>        Superadiabatic excess of polytropic atmosphere [default: 1e-4]
-    --aspect=<aspect>          Aspect ratio of problem (Lx = Ly = aspect*Lz) [default: 4]
+    --aspect=<aspect>          Aspect ratio of problem (Lx = Ly = aspect*Lz) [default: 2]
     --3D                       Run in 3D
 
     --thermal_BC=<bc>          A short string specifying the thermal boundary conditions:
@@ -31,12 +31,13 @@ Options:
     --ny=<nx>                  Horizontal coeff resolution [default: 256]
     --mesh=<mesh>              Processor mesh if distributing 3D run in 2D 
     
-    --restart=<restart_file>   The path to a checkpoint file to restart from (optional)
+    --restart=<restart_file>   The path to a checkpoint file to restart from
     --seed=<seed>              RNG seed for initial conditoins [default: 42]
 
     --run_time_wall=<t>        Run time, in wall hours [default: 23.5]
     --run_time_buoy=<t>        Run time, in simulation buoyancy times
     --run_time_therm=<t>       Run time, in simulation thermal times [default: 1]
+    --run_time_restarted       If flagged, try to run exactly run_time_buoy or run_time_therm from the current sim time
 
     --root_dir=<dir>           Root directory for output [default: ./]
     --label=<label>            Optional additional case name label
@@ -45,6 +46,8 @@ Options:
     --no_join                  If flagged, don't join files at end of run
 
     --ae                       Accelerated evolution
+    --ae_outs                  Output Accelerated evolution comparison tasks
+    --ae_start_time=<t>        Buoyancy times to wait before first AE averaging [default: 20]
 
 """
 def name_case(input_dict):
@@ -128,7 +131,7 @@ def FC_TriLayer_convection(input_dict):
     from logic.experiments   import CompressibleConvection
     from logic.problems      import DedalusIVP, FCAcceleratedEvolutionIVP
     from logic.equations     import KappaMuFCE
-    from logic.outputs       import initialize_output
+    from logic.outputs       import initialize_output, ae_initialize_output
     from logic.checkpointing import Checkpoint
     from logic.field_averager import AveragerFCAE, AveragerFCStructure
 
@@ -172,6 +175,7 @@ def FC_TriLayer_convection(input_dict):
         run_time_therm = float(run_time_therm)
         logger.info("Terminating run after {} thermal times".format(run_time_therm))
 
+
     # Initialize atmosphere class 
     atmo_kwargs   = OrderedDict([('epsilon',        eps),
                                  ('n_rho_rzT',      n_rho_rzT),
@@ -212,6 +216,9 @@ def FC_TriLayer_convection(input_dict):
         stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
     else:
         stop_sim_time = run_time_buoy*atmosphere.atmo_params['t_buoy']
+    if args['--run_time_restarted']:
+        stop_sim_time += de_problem.solver.sim_time
+        
     de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
 
     #Setup checkpointing and initial conditions
@@ -221,8 +228,12 @@ def FC_TriLayer_convection(input_dict):
 
     #Set up outputs
     output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
-    analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
-                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)#, volumes_output=True)
+    if args['--ae_outs']:
+        analysis_tasks = ae_initialize_output(de_domain, de_problem, data_dir, 
+                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)# volumes_output=True)
+    else:
+        analysis_tasks = initialize_output(de_domain, de_problem, data_dir, 
+                                       output_dt=output_dt, output_vol_dt=atmosphere.atmo_params['t_buoy'], mode=mode)# volumes_output=True)
 
     # Ensure good initial dt and setup CFL
     max_dt = min((0.2, float(args['--output_dt'])))*atmosphere.atmo_params['t_buoy']
@@ -241,13 +252,13 @@ def FC_TriLayer_convection(input_dict):
         task_args = (thermal_BC,)
         pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
+        pre_loop_kwargs = { 'sim_time_start' : int(args['--ae_start_time'])*atmosphere.atmo_params['t_buoy'], 
                             'min_bvp_time' : 10*atmosphere.atmo_params['t_buoy'], 
                             'between_ae_wait_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'later_bvp_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'ae_convergence' : 1e-2, 
                             'bvp_threshold' : 1e-2,
-                            'min_bvp_threshold' : 1e-3
+                            'min_bvp_threshold' : 5e-3
                             }
         solve_args = (dt, CFL, data_dir, analysis_tasks)
         solve_kwargs = {    'task_args' : task_args,

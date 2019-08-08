@@ -35,6 +35,7 @@ Options:
     --run_time_wall=<t>        Run time, in wall hours [default: 23.5]
     --run_time_buoy=<t>        Run time, in simulation buoyancy times
     --run_time_therm=<t>       Run time, in simulation thermal times [default: 1]
+    --run_time_restarted       If flagged, try to run exactly run_time_buoy or run_time_therm from the current sim time
 
     --root_dir=<dir>           Root directory for output [default: ./]
     --label=<label>            Optional additional case name label
@@ -44,6 +45,7 @@ Options:
 
     --ae                       Accelerated evolution
     --ae_outs                  Output Accelerated evolution comparison tasks
+    --ae_start_time=<t>        Buoyancy times to wait before first AE averaging [default: 20]
 
 """
 def name_case(input_dict):
@@ -204,6 +206,9 @@ def FC_polytropic_convection(input_dict):
         stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
     else:
         stop_sim_time = run_time_buoy*atmosphere.atmo_params['t_buoy']
+    if args['--run_time_restarted']:
+        stop_sim_time += de_problem.solver.sim_time
+    logger.info('current sim time: {:.2g}, stop sim time: {:.2e}'.format(de_problem.solver.sim_time, stop_sim_time))
     de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
 
     #Setup checkpointing and initial conditions
@@ -225,7 +230,7 @@ def FC_polytropic_convection(input_dict):
     max_dt = output_dt
     if dt is None:
         dt = max_dt  
-    cfl_safety = 0.13
+    cfl_safety = 0.11
     CFL = flow_tools.CFL(de_problem.solver, initial_dt=dt, cadence=1, safety=cfl_safety*2,
                          max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
     if threeD:
@@ -238,7 +243,7 @@ def FC_polytropic_convection(input_dict):
         task_args = (thermal_BC,)
         pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
-        pre_loop_kwargs = { 'sim_time_start' : 10*atmosphere.atmo_params['t_buoy'], 
+        pre_loop_kwargs = { 'sim_time_start' : int(args['--ae_start_time'])*atmosphere.atmo_params['t_buoy'], 
                             'min_bvp_time' : 10*atmosphere.atmo_params['t_buoy'], 
                             'between_ae_wait_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'later_bvp_time' : 20*atmosphere.atmo_params['t_buoy'],

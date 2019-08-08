@@ -357,8 +357,8 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 for k in averager.FIELDS.keys():
                     maxs.append(averager.find_global_max(averager.local_l2[k]))
 
-                logger.info('AE: Max abs L2 norm for convergence: {:.4e} / {:.4e}'.format(np.max(maxs), self.bvp_threshold))
-                if np.max(maxs) < self.bvp_threshold:
+                logger.info('AE: Max abs L2 norm for convergence: {:.4e} / {:.4e}'.format(np.median(maxs), self.bvp_threshold))
+                if np.median(maxs) < self.bvp_threshold:
                     return True
                 else:
                     return False

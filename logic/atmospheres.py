@@ -284,8 +284,8 @@ class TriLayerIH(IdealGasAtmosphere):
             max_diff = 1
             while max_diff > tolerance:
                 Lz = L_RB + L_C + L_RT
-                print('max_diff : {:.2e}'.format(max_diff))
-                print('Lz: {:.2g}, Ls: {:.2g}, {:.2g}, {:.2g}'.format(L_RB+L_C+L_RT, L_RB, L_C, L_RT))
+                logger.info('max_diff : {:.2e}'.format(max_diff))
+                logger.info('Lz: {:.2g}, Ls: {:.2g}, {:.2g}, {:.2g}'.format(L_RB+L_C+L_RT, L_RB, L_C, L_RT))
 
                 A = 1./6
                 B = -(L_RB + L_C/2)/2
@@ -320,6 +320,8 @@ class TriLayerIH(IdealGasAtmosphere):
         self.atmo_params['L_RT'] = self.L_RT = L_RT
         self.atmo_params['L_C'] = self.L_C = L_C
         self.atmo_params['L_RB'] = self.L_RB = L_RB
+        logger.info('Solving in TriLayer atmosphere with length scales:')
+        logger.info('   L_RT = {:.2g}, L_C = {:.2g}, L_RB = {:.2g}'.format(L_RT, L_C, L_RB))
         super(TriLayerIH, self)._set_thermodynamics(gamma=gamma, R=R)
 
     def build_atmosphere(self, de_domain):
@@ -358,7 +360,7 @@ class TriLayerIH(IdealGasAtmosphere):
         s0['g'] = self.atmo_params['Cp']*(1/self.atmo_params['gamma'])*(np.log(self.atmo_fields['T0']['g']) - (self.atmo_params['gamma']-1)*self.atmo_fields['ln_rho0']['g'])
         self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_RB+self.L_C)['g'])-np.mean(s0.interpolate(z=self.L_RB)['g']))
         
-        self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['Lz']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
+        self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.atmo_params['L_C']*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
         self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
         logger.info('Initialized TriLayer:')
         logger.info('   epsilon = {:.2e}'.format(epsilon))
