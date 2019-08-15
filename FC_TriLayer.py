@@ -212,6 +212,9 @@ def FC_TriLayer_convection(input_dict):
     # Build solver, set stop times
     de_problem.build_solver(de.timesteppers.RK222)
 
+    #Setup checkpointing and initial conditions
+    checkpoint = Checkpoint(data_dir)
+    dt, mode =     experiment.set_IC(de_problem.solver, eps, checkpoint, restart=args['--restart'], seed=int(args['--seed']), checkpoint_dt=float(args['--checkpoint_buoy'])*atmosphere.atmo_params['t_buoy'])
     if run_time_buoy is None:
         stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
     else:
@@ -221,9 +224,6 @@ def FC_TriLayer_convection(input_dict):
         
     de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
 
-    #Setup checkpointing and initial conditions
-    checkpoint = Checkpoint(data_dir)
-    dt, mode =     experiment.set_IC(de_problem.solver, eps, checkpoint, restart=args['--restart'], seed=int(args['--seed']), checkpoint_dt=float(args['--checkpoint_buoy'])*atmosphere.atmo_params['t_buoy'])
 
 
     #Set up outputs

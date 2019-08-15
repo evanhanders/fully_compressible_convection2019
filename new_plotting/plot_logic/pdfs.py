@@ -118,6 +118,7 @@ class PdfPlotter():
         
 
     def plot_pdfs(self, dpi=150):
+        if MPI.COMM_WORLD.rank != 0: return
 
         grid = PlotGrid(1,1, row_in=5, col_in=8.5)
         ax = grid.axes['ax_0-0']
@@ -144,13 +145,14 @@ class PdfPlotter():
         self._save_pdfs()
 
     def _save_pdfs(self):
-        with h5py.File('{:s}/pdf_data.h5'.format(self.out_dir), 'w') as f:
-            for k, data in self.pdfs.items():
-                pdf, xs, dx = data
-                this_group = f.create_group(k)
-                for d, n in ((pdf, 'pdf'), (xs, 'xs')):
-                    dset = this_group.create_dataset(name=n, shape=d.shape, dtype=np.float64)
-                    f['{:s}/{:s}'.format(k, n)][:] = d
-                dset = this_group.create_dataset(name='dx', shape=(1,), dtype=np.float64)
-                f['{:s}/dx'.format(k)][0] = dx
+        if MPI.COMM_WORLD.rank == 0:
+            with h5py.File('{:s}/pdf_data.h5'.format(self.out_dir), 'w') as f:
+                for k, data in self.pdfs.items():
+                    pdf, xs, dx = data
+                    this_group = f.create_group(k)
+                    for d, n in ((pdf, 'pdf'), (xs, 'xs')):
+                        dset = this_group.create_dataset(name=n, shape=d.shape, dtype=np.float64)
+                        f['{:s}/{:s}'.format(k, n)][:] = d
+                    dset = this_group.create_dataset(name='dx', shape=(1,), dtype=np.float64)
+                    f['{:s}/dx'.format(k)][0] = dx
 

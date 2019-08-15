@@ -115,3 +115,90 @@ class SlicePlotter():
                 self.grid.fig.savefig('{:s}/{:s}_{:06d}.png'.format(self.out_dir, self.fig_name, n+start_fig), dpi=dpi, bbox_inches='tight')
                 for ax in axs: ax.clear()
                 for cax in caxs: cax.clear()
+
+
+class MultiRunSlicePlotter(SlicePlotter):
+
+    def __init__(self, root_dirs, file_dir='slices', fig_name='snapshots', start_file=1, n_files=None, **kwargs):
+        self.readers = []
+        for direct in root_dirs:
+            print(direct)
+            self.readers.append(FileReader(direct, sub_dirs=[file_dir,], num_files=[n_files,], start_file=1, distribution='even', **kwargs))
+        self.fig_name = fig_name
+        self.out_dir  = '{:s}/{:s}/'.format(root_dirs[0], fig_name)
+        if self.readers[0].comm.rank == 0 and not os.path.exists('{:s}'.format(self.out_dir)):
+            os.mkdir('{:s}'.format(self.out_dir))
+        self.colormeshes = []
+
+    def plot_colormeshes(self, start_fig=1, dpi=200):
+        axs, caxs = self._groom_grid()
+        tasks = []
+        base_names = []
+        for cm in self.colormeshes:
+            if cm.field not in tasks:
+                tasks.append(cm.field)
+            if cm.x_basis not in base_names:
+                base_names.append(cm.x_basis)
+            if cm.y_basis not in base_names:
+                base_names.append(cm.y_basis)
+
+        if self.readers[0].local_file_lists[self.readers[0].sub_dirs[0]] is None:
+            return
+
+        
+        for i in range(len(self.readers[0].local_file_lists[self.readers[0].sub_dirs[0]])):
+            if self.readers[0].comm.rank == 0:
+                print('on file {}/{}...'.format(i+1, len(self.readers[0].local_file_lists[self.readers[0].sub_dirs[0]])))
+                stdout.flush()
+
+            bases, data, writenums, times = [], [], [], []
+            for reader in self.readers:
+                f = reader.local_file_lists[reader.sub_dirs[0]][i]
+                bs, dt, wn, ts = reader.read_file(f, bases=base_names, tasks=tasks)
+                bases.append(bs)
+                data.append(dt)
+                writenums.append(wn)
+                times.append(ts)
+
+
+            for j, n in enumerate(writenums[0]):
+                for k, reader in enumerate(self.readers):
+                    bs, dt, wn, ts = bases[k], data[k], writenums[k], times[k]
+                    for cm in self.colormeshes:
+                        x = bs[cm.x_basis]
+                        y = bs[cm.y_basis]
+                        cm.yy, cm.xx = np.meshgrid(y, x)
+                    if reader.comm.rank == 0:
+                        print('writing plot {}/{} on process 0'.format(j+1, len(wn)))
+                        stdout.flush()
+                    for tsk in range(len(tasks)):
+                        field = np.squeeze(dt[tasks[tsk]][j,:])
+                        xx, yy = self.colormeshes[tsk].xx, self.colormeshes[tsk].yy
+                        if self.colormeshes[tsk].remove_mean:
+                            field -= np.mean(field)
+                        elif self.colormeshes[tsk].remove_x_mean:
+                            field -= np.mean(field, axis=0)
+                        elif self.colormeshes[tsk].remove_y_mean:
+                            field -= np.mean(field, axis=1)
+
+                        vals = np.sort(field.flatten())
+                        if self.colormeshes[tsk].pos_def:
+                            vmin, vmax = 0, vals[int(0.99*len(vals))]
+                        else:
+                            vals = np.sort(np.abs(vals))
+                            vmax = vals[int(0.99*len(vals))]
+                            vmin = -vmax
+
+                        ax_ind = k*len(tasks)+tsk
+                        plot = axs[ax_ind].pcolormesh(xx, yy, field, cmap=self.colormeshes[tsk].cmap, vmin=vmin, vmax=vmax, rasterized=True)
+                        cb = plt.colorbar(plot, cax=caxs[ax_ind], orientation='horizontal')
+                        cb.solids.set_rasterized(True)
+                        cb.set_ticks((vmin, vmax))
+                        cb.set_ticklabels(('{:.2e}'.format(vmin), '{:.2e}'.format(vmax)))
+                        caxs[ax_ind].xaxis.set_ticks_position('bottom')
+                        caxs[ax_ind].text(0.5, 0.25, '{:s}'.format(tasks[tsk]))
+
+                plt.suptitle('t = {:.4e}'.format(times[0][j]))
+                self.grid.fig.savefig('{:s}/{:s}_{:06d}.png'.format(self.out_dir, self.fig_name, n+start_fig), dpi=dpi, bbox_inches='tight')
+                for ax in axs: ax.clear()
+                for cax in caxs: cax.clear()

@@ -202,19 +202,21 @@ def FC_polytropic_convection(input_dict):
     # Build solver, set stop times
     de_problem.build_solver(de.timesteppers.RK222)
 
-    if run_time_buoy is None:
-        stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm']
-    else:
-        stop_sim_time = run_time_buoy*atmosphere.atmo_params['t_buoy']
-    if args['--run_time_restarted']:
-        stop_sim_time += de_problem.solver.sim_time
-    logger.info('current sim time: {:.2g}, stop sim time: {:.2e}'.format(de_problem.solver.sim_time, stop_sim_time))
-    de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
-
     #Setup checkpointing and initial conditions
     checkpoint = Checkpoint(data_dir)
     dt, mode =     experiment.set_IC(de_problem.solver, eps, checkpoint, restart=args['--restart'], seed=int(args['--seed']), checkpoint_dt=float(args['--checkpoint_buoy'])*atmosphere.atmo_params['t_buoy'])
 
+    if args['--run_time_restarted']:
+        offset = de_problem.solver.sim_time
+    else:
+        offset = 0
+    if run_time_buoy is None:
+        stop_sim_time = run_time_therm*atmosphere.atmo_params['t_therm'] + offset
+
+    else:
+        stop_sim_time = run_time_buoy*atmosphere.atmo_params['t_buoy'] + offset
+    logger.info('current sim time: {:.2g}, stop sim time: {:.2e}'.format(de_problem.solver.sim_time, stop_sim_time))
+    de_problem.set_stop_condition(stop_wall_time=run_time_wall*3600, stop_sim_time=stop_sim_time)
 
     #Set up outputs
     output_dt = float(args['--output_dt'])*atmosphere.atmo_params['t_buoy']
