@@ -1,6 +1,5 @@
 """
-Script for plotting files which follow entropy perturbations, velocity fields, 
-horizontal power spectra, and entropy gradient
+Script for plotting traces of evaluated scalar quantities vs. time.
 
 Usage:
     plot_scalars.py [options]
@@ -8,61 +7,54 @@ Usage:
 Options:
     --root_dir=<root_dir>               Directory pointing to 'slices', 'scalars', 
                                          'profiles' folders for relevant run
-    --fig_dir=<fig_dir>                 Output directory for figures [scalar_plots]
-    --fig_width=<fig_width>             Figure width in inches [default: 12]
-    --fig_height=<fig_height>           Figure height in inches [default: 10]
+    --fig_name=<fig_name>               Output directory for figures [default: traces]
     --start_file=<start_file>           Dedalus output file to start at [default: 1]
     --n_files=<num_files>               Number of files to plot [default: 100000]
     --dpi=<dpi>                         Image pixel density [default: 150]
-    --avg_start_time=<time>             Average simulation start time
-    --no_avg                            If true, don't plot mean
 """
 import logging
 logger = logging.getLogger(__name__)
 from docopt import docopt
 args = docopt(__doc__)
-from base.plot_buddy import ScalarBuddy
-from mpi4py import MPI
+from plot_logic.scalars import ScalarFigure, ScalarPlotter, ScalarConvergencePlotter
 
 root_dir = args['--root_dir']
-fig_dir  = args['--fig_dir']
-avg_start_time = args['--avg_start_time']
-if not isinstance(avg_start_time, type(None)):
-    avg_start_time = float(avg_start_time)
+fig_name  = args['--fig_name']
 start_file = int(args['--start_file'])
-n_files = int(args['--n_files'])
-dpi=int(args['--dpi'])
-no_avg=args['--no_avg']
-#no_avg=True
+n_files     = args['--n_files']
+if n_files is not None: n_files = int(n_files)
 
-fig_dims = (float(args['--fig_width']), float(args['--fig_height']))
 
-if isinstance(root_dir, type(None)):
-    logger.info('No root directory specified; exiting')
-    import sys
-    sys.exit()
+# Nu vs time
+fig1 = ScalarFigure(1, 1, col_in=6, fig_name='nu_trace')
+fig1.add_field(0, 'Nu')
 
-plotter = ScalarBuddy(root_dir, n_files=n_files, start_file=start_file)
-try:
-    plotter.track_scalar('Nu')
-    plotter.track_scalar('M1')
-    plotter.track_scalar('Re_rms')
-    plotter.track_scalar('flux_equilibration')
-    energies = ['KE', 'IE_fluc', 'PE_fluc', 'TE_fluc']
-    [plotter.track_scalar(s) for s in energies]
-    plotter.pull_tracked_scalars()
+# Re vs. time
+fig2 = ScalarFigure(1, 1, col_in=6, fig_name='re_trace')
+fig2.add_field(0, 'Re_rms')
 
-    plotter.add_plot('Energy_v_time.png', energies, start_x_avg=avg_start_time)
-    plotter.add_plot('nu_v_time.png', 'Nu', start_x_avg=avg_start_time)
-    plotter.add_plot('re_v_time.png', 'Re_rms', start_x_avg=avg_start_time)
-    plotter.add_plot('m1_v_time.png', 'M1', start_x_avg=avg_start_time)
-    plotter.add_plot('TE_v_time.png', 'TE_fluc', start_x_avg=avg_start_time)
-    plotter.add_plot('equil_v_time.png', 'flux_equilibration', start_x_avg=avg_start_time)
-    plotter.make_plots(do_avg=not(no_avg))
-    plotter.save_scalars()
-except:
-    raise
-    logger.info("Not a rotating run, no Rossby plot")
+# Flux equilibration vs. time
+fig3 = ScalarFigure(1, 1, col_in=6, fig_name='flux_equil')
+fig3.add_field(0, 'flux_equilibration')
 
-plotter.reset()
+# Energies
+fig4 = ScalarFigure(5, 1, col_in=6, row_in=2.5, fig_name='energies')
+fig4.add_field(0, 'KE')
+fig4.add_field(1, 'KE')
+fig4.add_field(0, 'IE_fluc')
+fig4.add_field(2, 'IE_fluc')
+fig4.add_field(0, 'PE_fluc')
+fig4.add_field(3, 'PE_fluc')
+fig4.add_field(0, 'TE_fluc')
+fig4.add_field(4, 'TE_fluc')
 
+# Mass change
+fig5 = ScalarFigure(1, 1, col_in=6, fig_name='mass_integ_change')
+fig5.add_field(0, 'M1')
+
+# Load in figures and make plots
+plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
+conv_plotter = ScalarConvergencePlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
+for p in [plotter, conv_plotter]:
+    p.load_figures([fig1, fig2, fig3, fig4, fig5])
+    p.plot_figures(dpi=int(args['--dpi']))
