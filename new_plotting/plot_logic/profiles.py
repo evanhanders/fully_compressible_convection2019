@@ -9,7 +9,7 @@ from sys import stdout
 from sys import path
 path.insert(0, './plot_logic')
 from plot_logic.file_reader import FileReader
-from plot_logic.plot_grid import ColorbarPlotGrid
+from plot_logic.plot_grid import ColorbarPlotGrid, PlotGrid
 
 import numpy as np
 from mpi4py import MPI
@@ -24,7 +24,12 @@ class ProfileColormesh:
         self.basis = basis
         self.cmap = cmap
         self.pos_def = pos_def
-        self.xx, self.yy = None, None
+
+class AveragedProfile:
+    def __init__(self, field, avg_writes, basis='z'):
+        self.field = field
+        self.basis = basis
+        self.avg_writes = avg_writes 
 
 class ProfilePlotter():
 
@@ -35,9 +40,13 @@ class ProfilePlotter():
         if self.reader.comm.rank == 0 and not os.path.exists('{:s}'.format(self.out_dir)):
             os.mkdir('{:s}'.format(self.out_dir))
         self.colormeshes = []
+        self.avg_profs   = []
 
     def add_colormesh(self, *args, **kwargs):
         self.colormeshes.append(ProfileColormesh(*args, **kwargs))
+
+    def add_profile(self, *args, **kwargs):
+        self.avg_profs.append(AveragedProfile(*args, **kwargs))
 
     def get_profiles(self, tasks, bases):
         my_tsks = []
@@ -134,3 +143,47 @@ class ProfilePlotter():
             grid.fig.savefig('{:s}/{:s}_{:s}.png'.format(self.out_dir, self.fig_name, k), dpi=dpi, bbox_inches='tight')
             ax.clear()
             cax.clear()
+
+    def plot_avg_profiles(self, dpi=200, **kwargs):
+        grid = PlotGrid(1,1, **kwargs)
+        ax = grid.axes['ax_0-0']
+        tasks = []
+        bases = []
+        for prof in self.avg_profs:
+            if prof.field not in tasks:
+                tasks.append(prof.field)
+            if prof.basis not in bases:
+                bases.append(prof.basis)
+
+        if self.reader.local_file_lists[self.reader.sub_dirs[0]] is None:
+            return
+        profiles, bs, times = self.get_profiles(tasks, bases)
+        if self.reader.comm.rank != 0: return
+
+        for prof in self.avg_profs:
+            n_writes = np.int(np.ceil(len(times)/prof.avg_writes))
+            basis = bs[prof.basis]
+            k = prof.field
+            data = profiles[k]
+            for i in range(n_writes):
+                if i == n_writes-1:
+                    profile = np.mean(data[i*prof.avg_writes:,:], axis=0)
+                    t1, t2 = times[i*prof.avg_writes], times[-1]
+                else:
+                    profile = np.mean(data[i*prof.avg_writes:(i+1)*prof.avg_writes,:], axis=0)
+                    t1, t2 = times[i*prof.avg_writes], times[(i+1)*prof.avg_writes]
+
+                if self.reader.comm.rank == 0:
+                    print('writing {} plot {}/{}'.format(k, i+1, n_writes))
+                    stdout.flush()
+
+                ax.grid(which='major')
+                plot = ax.plot(basis, profile, lw=2)
+                ax.set_ylabel(k)
+                ax.set_xlabel(prof.basis)
+                ax.set_title('t = {:.4e}-{:.4e}'.format(t1, t2))
+                ax.set_xlim(basis.min(), basis.max())
+                ax.set_ylim(profile.min(), profile.max())
+
+                grid.fig.savefig('{:s}/{:s}_{:s}_avg{:04d}.png'.format(self.out_dir, self.fig_name, k, i+1), dpi=dpi, bbox_inches='tight')
+                ax.clear()
