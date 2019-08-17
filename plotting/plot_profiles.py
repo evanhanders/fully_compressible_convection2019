@@ -2,11 +2,9 @@
 Script for plotting time-averaged profiles
 
 Usage:
-    plot_profiles.py [options]
+    plot_profiles.py <root_dir> [options]
 
 Options:
-    --root_dir=<root_dir>               Directory pointing to 'slices', 'scalars', 
-                                         'profiles' folders for relevant run
     --fig_dir=<fig_dir>                 Output directory for figures [default: profile_plots]
     --fig_width=<fig_width>             Figure width in inches [default: 12]
     --fig_height=<fig_height>           Figure height in inches [default: 10]
@@ -22,7 +20,7 @@ args = docopt(__doc__)
 from base.plot_buddy import ProfileBuddy
 from mpi4py import MPI
 
-root_dir = args['--root_dir']
+root_dir = args['<root_dir>']
 fig_dir  = args['--fig_dir']
 start_file = int(args['--start_file'])
 n_files = int(args['--n_files'])

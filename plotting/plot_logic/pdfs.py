@@ -1,75 +1,79 @@
+import os
+import logging
+from collections import OrderedDict
+from sys import stdout
+from sys import path
+
+import numpy as np
+import h5py
+from mpi4py import MPI
+from scipy.interpolate import RegularGridInterpolator
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 matplotlib.rcParams.update({'font.size': 9})
 
-from collections import OrderedDict
+from dedalus.tools.parallel import Sync
 
-import os
-from sys import stdout
-from sys import path
 path.insert(0, './plot_logic')
 from plot_logic.file_reader import FileReader
 from plot_logic.plot_grid import PlotGrid
-from scipy.interpolate import RegularGridInterpolator
 
-from mpi4py import MPI
-
-import numpy as np
-import h5py
-
-import logging
 logger = logging.getLogger(__name__.split('.')[-1])
 
 
 class PdfPlotter():
+    """
+    A class for plotting probability distributions of a dedalus output.
+    PDF plots are currently only implemented for 2D slices. When one axis is
+    represented by polynomials that exist on an uneven basis (e.g., Chebyshev),
+    that basis is evenly interpolated to avoid skewing of the distribution by
+    uneven grid sampling.
 
-    def __init__(self, root_dir, file_dir='slices', fig_name='pdfs', start_file=1, n_files=None, **kwargs):
-        self.reader = FileReader(root_dir, sub_dirs=[file_dir,], num_files=[n_files,], start_file=1, distribution='even', **kwargs)
+    Attributes:
+    -----------
+    fig_name : string
+        Base name of output figures
+    my_sync : Sync
+        Keeps processes synchronized in the code even when some are idle
+    out_dir : string
+        Path to location where pdf output files are saved
+    pdfs : OrderedDict
+        Contains PDF data (x, y, dx)
+    pdf_stats : OrderedDict
+        Contains scalar stats for the PDFS (mean, stdev, skew, kurtosis)
+    reader : FileReader
+        A file reader for interfacing with Dedalus files
+    """
+
+    def __init__(self, root_dir, file_dir='slices', fig_name='pdfs', n_files=None, **kwargs):
+        """
+        Initializes the PDF plotter.
+
+        Attributes:
+        -----------
+        root_dir : string
+            Root file directory of output files
+        file_dir : string, optional
+            subdirectory of root_dir where the data to make PDFs is contained
+        fig_name : string, optional
+            As in class-level docstring
+        n_files  : int, optional
+            Number of files to process. If None, all of them.
+        **kwargs : Additional keyword arguments for FileReader()
+        """
+        self.reader = FileReader(root_dir, sub_dirs=[file_dir,], num_files=[n_files,], distribution='even', **kwargs)
         self.fig_name = fig_name
         self.out_dir  = '{:s}/{:s}/'.format(root_dir, fig_name)
         if self.reader.comm.rank == 0 and not os.path.exists('{:s}'.format(self.out_dir)):
             os.mkdir('{:s}'.format(self.out_dir))
         self.pdfs = OrderedDict()
         self.pdf_stats = OrderedDict()
-    
-    def _get_interpolated_slices(self, pdf_list, bases=['x', 'z'], cheby_basis='z'):
-        #Read data
-        tasks = []
-        for i, f in enumerate(self.reader.local_file_lists[self.reader.sub_dirs[0]]):
-            if self.reader.comm.rank == 0:
-                print('reading file {}/{}...'.format(i+1, len(self.reader.local_file_lists[self.reader.sub_dirs[0]])))
-                stdout.flush()
-            bs, tsk, writenum, times = self.reader.read_file(f, bases=bases, tasks=pdf_list)
-            tasks.append(tsk)
-            if i == 0:
-                total_shape = list(tsk[pdf_list[0]].shape)
-            else:
-                total_shape[0] += tsk[pdf_list[0]].shape[0]
+        self.my_sync = Sync(self.reader.comm)
 
-        # Put data on an even grid
-        x, y = bs[bases[0]], bs[bases[1]]
-        yy, xx = np.meshgrid(y, x)
-        if bases[0] == cheby_basis:
-            even_x = np.linspace(x.min(), x.max(), len(x))
-            even_y = y
-        elif bases[1] == cheby_basis:
-            even_x = x
-            even_y = np.linspace(y.min(), y.max(), len(y))
-        eyy, exx = np.meshgrid(even_y, even_x)
-
-        full_data = OrderedDict()
-        for k in pdf_list: full_data[k] = np.zeros(total_shape)
-        count = 0
-        for i in range(len(tasks)):
-            for j in range(tasks[i][pdf_list[0]].shape[0]):
-                for k in pdf_list:
-                    interp = RegularGridInterpolator((x.flatten(), y.flatten()), tasks[i][k][j,:], method='linear')
-                    full_data[k][count,:] = interp((exx, eyy))
-                count += 1
-        return full_data
 
     def _calculate_pdf_statistics(self):
+        """ Calculate statistics of the PDFs stored in self.pdfs. Store results in self.pdf_stats. """
         for k, data in self.pdfs.items():
             pdf, x_vals, dx = data
 
@@ -79,73 +83,151 @@ class PdfPlotter():
             kurt = np.sum((x_vals-mean)**4*pdf*dx)/stdev**4
             self.pdf_stats[k] = (mean, stdev, skew, kurt)
 
+    
+    def _get_interpolated_slices(self, pdf_list, bases=['x', 'z'], uneven_basis=None):
+        """
+        For data on an uneven grid, interpolates that data on to an evenly spaced grid.
+
+        Attributes:
+        ----------
+        pdf_list : list
+            list of strings of the Dedalus tasks to make PDFs of.
+        bases : list, optional
+            The names of the Dedalus bases on which the data exists
+        uneven_basis : string, optional
+            The basis on which the grid has uneven spacing.
+        """
+        with self.my_sync:
+            if self.reader.idle[self.reader.sub_dirs[0]]: return
+            #Read data
+            tasks = []
+            file_list = self.reader.local_file_lists[self.reader.sub_dirs[0]]
+            for i, f in enumerate(file_list):
+                if self.reader.comm.rank == 0:
+                    print('reading file {}/{}...'.format(i+1, len(file_list)))
+                    stdout.flush()
+                bs, tsk, writenum, times = self.reader.read_file(f, bases=bases, tasks=pdf_list)
+                tasks.append(tsk)
+                if i == 0:
+                    total_shape = list(tsk[pdf_list[0]].shape)
+                else:
+                    total_shape[0] += tsk[pdf_list[0]].shape[0]
+
+            # Put data on an even grid
+            x, y = bs[bases[0]], bs[bases[1]]
+            if bases[0] == uneven_basis:
+                even_x = np.linspace(x.min(), x.max(), len(x))
+                even_y = y
+            elif bases[1] == uneven_basis:
+                even_x = x
+                even_y = np.linspace(y.min(), y.max(), len(y))
+            else:
+                even_x, even_y = x, y
+            eyy, exx = np.meshgrid(even_y, even_x)
+
+            full_data = OrderedDict()
+            for k in pdf_list: full_data[k] = np.zeros(total_shape)
+            count = 0
+            for i in range(len(tasks)):
+                for j in range(tasks[i][pdf_list[0]].shape[0]):
+                    for k in pdf_list:
+                        interp = RegularGridInterpolator((x.flatten(), y.flatten()), tasks[i][k][j,:], method='linear')
+                        full_data[k][count,:] = interp((exx, eyy))
+                    count += 1
+            return full_data
 
 
     def calculate_pdfs(self, pdf_list, bins=100, **kwargs):
-        this_comm = self.reader.distribution_comms[self.reader.sub_dirs[0]]
-        if this_comm is None:
-            return
+        """
+        Calculate probability distribution functions of the specified tasks.
 
-        full_data = self._get_interpolated_slices(pdf_list, **kwargs)
+        Arguments:
+        ----------
+        pdf_list : list
+            The names of the tasks to create PDFs of
+        bins : int, optional
+            The number of bins the PDF should have
+        **kwargs : additional keyword arguments for the self._get_interpolated_slices() function.
+        """
+        with self.my_sync:
+            if self.reader.idle[self.reader.sub_dirs[0]]: reader
 
-        # Create histograms of data
-        bounds = OrderedDict()
-        minv, maxv = np.zeros(1), np.zeros(1)
-        buffmin, buffmax = np.zeros(1), np.zeros(1)
-        for k in pdf_list:
-            minv[0] = np.min(full_data[k])
-            maxv[0] = np.max(full_data[k])
-            this_comm.Allreduce(minv, buffmin, op=MPI.MIN)
-            this_comm.Allreduce(maxv, buffmax, op=MPI.MAX)
-            bounds[k] = (np.copy(buffmin[0]), np.copy(buffmax[0]))
-            buffmin *= 0
-            buffmax *= 0
+            this_comm = self.reader.distribution_comms[self.reader.sub_dirs[0]]
+            full_data = self._get_interpolated_slices(pdf_list, **kwargs)
 
-            loc_hist, bin_edges = np.histogram(full_data[k], bins=bins, range=bounds[k])
-            loc_hist = np.array(loc_hist, dtype=np.float64)
-            global_hist = np.zeros_like(loc_hist, dtype=np.float64)
-            this_comm.Allreduce(loc_hist, global_hist, op=MPI.SUM)
-            local_counts, global_counts = np.zeros(1), np.zeros(1)
-            local_counts[0] = np.prod(full_data[k].shape)
-            this_comm.Allreduce(local_counts, global_counts, op=MPI.SUM)
+            # Create histograms of data
+            bounds = OrderedDict()
+            minv, maxv = np.zeros(1), np.zeros(1)
+            buffmin, buffmax = np.zeros(1), np.zeros(1)
+            for k in pdf_list:
+                minv[0] = np.min(full_data[k])
+                maxv[0] = np.max(full_data[k])
+                this_comm.Allreduce(minv, buffmin, op=MPI.MIN)
+                this_comm.Allreduce(maxv, buffmax, op=MPI.MAX)
+                bounds[k] = (np.copy(buffmin[0]), np.copy(buffmax[0]))
+                buffmin *= 0
+                buffmax *= 0
 
-            dx = bin_edges[1]-bin_edges[0]
-            x_vals = bin_edges[:-1] + dx/2
-            pdf = global_hist/global_counts/dx
-            self.pdfs[k] = (pdf, x_vals, dx)
-        self._calculate_pdf_statistics()
+                loc_hist, bin_edges = np.histogram(full_data[k], bins=bins, range=bounds[k])
+                loc_hist = np.array(loc_hist, dtype=np.float64)
+                global_hist = np.zeros_like(loc_hist, dtype=np.float64)
+                this_comm.Allreduce(loc_hist, global_hist, op=MPI.SUM)
+                local_counts, global_counts = np.zeros(1), np.zeros(1)
+                local_counts[0] = np.prod(full_data[k].shape)
+                this_comm.Allreduce(local_counts, global_counts, op=MPI.SUM)
 
+                dx = bin_edges[1]-bin_edges[0]
+                x_vals = bin_edges[:-1] + dx/2
+                pdf = global_hist/global_counts/dx
+                self.pdfs[k] = (pdf, x_vals, dx)
+            self._calculate_pdf_statistics()
         
 
-    def plot_pdfs(self, dpi=150):
-        if MPI.COMM_WORLD.rank != 0: return
+    def plot_pdfs(self, dpi=150, **kwargs):
+        """
+        Plot the probability distribution functions and save them to file.
 
-        grid = PlotGrid(1,1, row_in=5, col_in=8.5)
-        ax = grid.axes['ax_0-0']
-        
-        for k, data in self.pdfs.items():
-            pdf, xs, dx = data
-            mean, stdev, skew, kurt = self.pdf_stats[k]
-            title = r'$\mu$ = {:.2g}, $\sigma$ = {:.2g}, skew = {:.2g}, kurt = {:.2g}'.format(mean, stdev, skew, kurt)
-            ax.set_title(title)
-            ax.axvline(mean, c='orange')
+        Arguments:
+        ----------
+        dpi : int, optional
+            Pixel density of output image.
+        **kwargs : additional keyword arguments for PlotGrid()
+        """
+        with self.my_sync:
+            if self.reader.comm.rank != 0: return
 
-            ax.plot(xs, pdf, lw=2, c='k')
-            ax.fill_between((mean-stdev, mean+stdev), pdf.min(), pdf.max(), color='orange', alpha=0.5)
-            ax.fill_between(xs, 1e-16, pdf, color='k', alpha=0.5)
-            ax.set_xlim(xs.min(), xs.max())
-            ax.set_ylim(pdf.min(), pdf.max())
-            ax.set_yscale('log')
-            ax.set_xlabel(k)
-            ax.set_ylabel('P({:s})'.format(k))
+            grid = PlotGrid(1,1, **kwargs)
+            ax = grid.axes['ax_0-0']
+            
+            for k, data in self.pdfs.items():
+                pdf, xs, dx = data
+                mean, stdev, skew, kurt = self.pdf_stats[k]
+                title = r'$\mu$ = {:.2g}, $\sigma$ = {:.2g}, skew = {:.2g}, kurt = {:.2g}'.format(mean, stdev, skew, kurt)
+                ax.set_title(title)
+                ax.axvline(mean, c='orange')
 
-            grid.fig.savefig('{:s}/{:s}_pdf.png'.format(self.out_dir, k), dpi=dpi, bbox_inches='tight')
-            ax.clear()
+                ax.plot(xs, pdf, lw=2, c='k')
+                ax.fill_between((mean-stdev, mean+stdev), pdf.min(), pdf.max(), color='orange', alpha=0.5)
+                ax.fill_between(xs, 1e-16, pdf, color='k', alpha=0.5)
+                ax.set_xlim(xs.min(), xs.max())
+                ax.set_ylim(pdf.min(), pdf.max())
+                ax.set_yscale('log')
+                ax.set_xlabel(k)
+                ax.set_ylabel('P({:s})'.format(k))
 
-        self._save_pdfs()
+                grid.fig.savefig('{:s}/{:s}_pdf.png'.format(self.out_dir, k), dpi=dpi, bbox_inches='tight')
+                ax.clear()
+
+            self._save_pdfs()
 
     def _save_pdfs(self):
-        if MPI.COMM_WORLD.rank == 0:
+        """ 
+        Save PDFs to file. For each PDF, e.g., 'entropy' and 'w', the file will have a dataset with:
+            xs  - the x-values of the PDF
+            pdf - the (normalized) y-values of the PDF
+            dx  - the spacing between x values, for use in integrals.
+        """
+        if self.reader.comm.rank == 0:
             with h5py.File('{:s}/pdf_data.h5'.format(self.out_dir), 'w') as f:
                 for k, data in self.pdfs.items():
                     pdf, xs, dx = data

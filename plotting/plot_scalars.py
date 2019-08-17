@@ -2,11 +2,9 @@
 Script for plotting traces of evaluated scalar quantities vs. time.
 
 Usage:
-    plot_scalars.py [options]
+    plot_scalars.py <root_dir> [options]
 
 Options:
-    --root_dir=<root_dir>               Directory pointing to 'slices', 'scalars', 
-                                         'profiles' folders for relevant run
     --fig_name=<fig_name>               Output directory for figures [default: traces]
     --start_file=<start_file>           Dedalus output file to start at [default: 1]
     --n_files=<num_files>               Number of files to plot [default: 100000]
@@ -18,7 +16,7 @@ from docopt import docopt
 args = docopt(__doc__)
 from plot_logic.scalars import ScalarFigure, ScalarPlotter, ScalarConvergencePlotter
 
-root_dir = args['--root_dir']
+root_dir = args['<root_dir>']
 fig_name  = args['--fig_name']
 start_file = int(args['--start_file'])
 n_files     = args['--n_files']

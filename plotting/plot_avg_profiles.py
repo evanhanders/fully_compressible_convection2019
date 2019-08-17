@@ -3,10 +3,9 @@ Script for plotting colormaps of the evolution of 1D profiles of a dedalus simul
 This script plots time evolution of the fields specified in 'fig_type'
 
 Usage:
-    plot_profiles.py --root_dir=<dir> [options]
+    plot_profiles.py <root_dir> [options]
 
 Options:
-    --root_dir=<root_dir>               Parent directory of Dedalus evaluator folders
     --fig_name=<fig_name>               Name of figure output directory & base name of saved figures [default: avg_profs]
     --start_file=<file_start_num>       Number of Dedalus output file to start plotting at [default: 1]
     --n_files=<num_files>               Number of files to plot
@@ -32,7 +31,7 @@ if n_files is not None: n_files = int(n_files)
 start_file  = int(args['--start_file'])
 avg_writes = int(args['--avg_writes'])
 
-root_dir    = args['--root_dir']
+root_dir    = args['<root_dir>']
 if root_dir is None:
     logger.error('No dedalus output dir specified, exiting')
     import sys
