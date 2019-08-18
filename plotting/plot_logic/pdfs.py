@@ -16,13 +16,13 @@ matplotlib.rcParams.update({'font.size': 9})
 from dedalus.tools.parallel import Sync
 
 path.insert(0, './plot_logic')
-from plot_logic.file_reader import FileReader
+from plot_logic.file_reader import SingleFiletypePlotter
 from plot_logic.plot_grid import PlotGrid
 
 logger = logging.getLogger(__name__.split('.')[-1])
 
 
-class PdfPlotter():
+class PdfPlotter(SingleFiletypePlotter):
     """
     A class for plotting probability distributions of a dedalus output.
     PDF plots are currently only implemented for 2D slices. When one axis is
@@ -30,46 +30,25 @@ class PdfPlotter():
     that basis is evenly interpolated to avoid skewing of the distribution by
     uneven grid sampling.
 
-    Attributes:
+    Additional Attributes:
     -----------
-    fig_name : string
-        Base name of output figures
-    my_sync : Sync
-        Keeps processes synchronized in the code even when some are idle
-    out_dir : string
-        Path to location where pdf output files are saved
     pdfs : OrderedDict
         Contains PDF data (x, y, dx)
     pdf_stats : OrderedDict
         Contains scalar stats for the PDFS (mean, stdev, skew, kurtosis)
-    reader : FileReader
-        A file reader for interfacing with Dedalus files
     """
 
-    def __init__(self, root_dir, file_dir='slices', fig_name='pdfs', n_files=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Initializes the PDF plotter.
 
         Attributes:
         -----------
-        root_dir : string
-            Root file directory of output files
-        file_dir : string, optional
-            subdirectory of root_dir where the data to make PDFs is contained
-        fig_name : string, optional
-            As in class-level docstring
-        n_files  : int, optional
-            Number of files to process. If None, all of them.
-        **kwargs : Additional keyword arguments for FileReader()
+        *args, **kwargs : Additional keyword arguments for super().__init__() 
         """
-        self.reader = FileReader(root_dir, sub_dirs=[file_dir,], num_files=[n_files,], distribution='even', **kwargs)
-        self.fig_name = fig_name
-        self.out_dir  = '{:s}/{:s}/'.format(root_dir, fig_name)
-        if self.reader.comm.rank == 0 and not os.path.exists('{:s}'.format(self.out_dir)):
-            os.mkdir('{:s}'.format(self.out_dir))
+        super(PdfPlotter, self).__init__(*args, distribution='even', **kwargs)
         self.pdfs = OrderedDict()
         self.pdf_stats = OrderedDict()
-        self.my_sync = Sync(self.reader.comm)
 
 
     def _calculate_pdf_statistics(self):
@@ -98,13 +77,12 @@ class PdfPlotter():
             The basis on which the grid has uneven spacing.
         """
         with self.my_sync:
-            if self.reader.idle[self.reader.sub_dirs[0]]: return
+            if self.idle: return
             #Read data
             tasks = []
-            file_list = self.reader.local_file_lists[self.reader.sub_dirs[0]]
-            for i, f in enumerate(file_list):
+            for i, f in enumerate(self.files):
                 if self.reader.comm.rank == 0:
-                    print('reading file {}/{}...'.format(i+1, len(file_list)))
+                    print('reading file {}/{}...'.format(i+1, len(self.files)))
                     stdout.flush()
                 bs, tsk, writenum, times = self.reader.read_file(f, bases=bases, tasks=pdf_list)
                 tasks.append(tsk)
@@ -150,9 +128,8 @@ class PdfPlotter():
         **kwargs : additional keyword arguments for the self._get_interpolated_slices() function.
         """
         with self.my_sync:
-            if self.reader.idle[self.reader.sub_dirs[0]]: reader
+            if self.idle : return
 
-            this_comm = self.reader.distribution_comms[self.reader.sub_dirs[0]]
             full_data = self._get_interpolated_slices(pdf_list, **kwargs)
 
             # Create histograms of data
@@ -162,8 +139,8 @@ class PdfPlotter():
             for k in pdf_list:
                 minv[0] = np.min(full_data[k])
                 maxv[0] = np.max(full_data[k])
-                this_comm.Allreduce(minv, buffmin, op=MPI.MIN)
-                this_comm.Allreduce(maxv, buffmax, op=MPI.MAX)
+                self.dist_comm.Allreduce(minv, buffmin, op=MPI.MIN)
+                self.dist_comm.Allreduce(maxv, buffmax, op=MPI.MAX)
                 bounds[k] = (np.copy(buffmin[0]), np.copy(buffmax[0]))
                 buffmin *= 0
                 buffmax *= 0
@@ -171,10 +148,10 @@ class PdfPlotter():
                 loc_hist, bin_edges = np.histogram(full_data[k], bins=bins, range=bounds[k])
                 loc_hist = np.array(loc_hist, dtype=np.float64)
                 global_hist = np.zeros_like(loc_hist, dtype=np.float64)
-                this_comm.Allreduce(loc_hist, global_hist, op=MPI.SUM)
+                self.dist_comm.Allreduce(loc_hist, global_hist, op=MPI.SUM)
                 local_counts, global_counts = np.zeros(1), np.zeros(1)
                 local_counts[0] = np.prod(full_data[k].shape)
-                this_comm.Allreduce(local_counts, global_counts, op=MPI.SUM)
+                self.dist_comm.Allreduce(local_counts, global_counts, op=MPI.SUM)
 
                 dx = bin_edges[1]-bin_edges[0]
                 x_vals = bin_edges[:-1] + dx/2

@@ -1,51 +1,48 @@
 """
-Script for plotting time-averaged profiles
+Script for plotting colormaps of the evolution of 1D profiles of a dedalus simulation.  
+This script plots time evolution of the fields specified in 'fig_type'
 
 Usage:
     plot_profiles.py <root_dir> [options]
 
 Options:
-    --fig_dir=<fig_dir>                 Output directory for figures [default: profile_plots]
-    --fig_width=<fig_width>             Figure width in inches [default: 12]
-    --fig_height=<fig_height>           Figure height in inches [default: 10]
-    --start_file=<start_file>           Dedalus output file to start at [default: 1]
-    --n_files=<num_files>               Number of files to plot [default: 100000]
-    --dpi=<dpi>                         Image pixel density [default: 150]
-    --avg_writes=<time>               Average over this many profiles [default: 20]
+    --fig_name=<fig_name>               Name of figure output directory & base name of saved figures [default: structures]
+    --start_file=<file_start_num>       Number of Dedalus output file to start plotting at [default: 1]
+    --n_files=<num_files>               Number of files to plot
+    --dpi=<dpi>                         Image pixel density [default: 200]
+
+    --col_inch=<in>                     Number of inches / column [default: 6]
+    --row_inch=<in>                     Number of inches / row [default: 3]
+
+    --fig_type=<fig_type>               Type of figure to plot
+                                            1 - s1
+                                        [default: 1]
 """
-import logging
-logger = logging.getLogger(__name__)
 from docopt import docopt
 args = docopt(__doc__)
-from base.plot_buddy import ProfileBuddy
-from mpi4py import MPI
+from plot_logic.profiles import ProfilePlotter
+import logging
+logger = logging.getLogger(__name__)
 
-root_dir = args['<root_dir>']
-fig_dir  = args['--fig_dir']
-start_file = int(args['--start_file'])
-n_files = int(args['--n_files'])
-dpi=int(args['--dpi'])
 
-fig_dims = (float(args['--fig_width']), float(args['--fig_height']))
+n_files     = args['--n_files']
+if n_files is not None: n_files = int(n_files)
+start_file  = int(args['--start_file'])
 
-if isinstance(root_dir, type(None)):
-    logger.info('No root directory specified; exiting')
+root_dir    = args['<root_dir>']
+if root_dir is None:
+    logger.error('No dedalus output dir specified, exiting')
     import sys
     sys.exit()
+fig_name   = args['--fig_name']
 
-plotter = ProfileBuddy(root_dir, avg_writes=float(args['--avg_writes']), n_files=n_files, start_file=start_file)
+plotter = ProfilePlotter(root_dir, file_dir='profiles', fig_name=fig_name, start_file=start_file, n_files=n_files)
 
-fluxes = ['F_cond_fluc_z', 'enth_flux_z', 'PE_flux_z', 'KE_flux_z', 'viscous_flux_z']
-[plotter.track_profile(s) for s in fluxes]
-fields = ['T1', 'enstrophy', 'Re_rms']
-for f in fields:
-    plotter.track_profile(f)
-plotter.pull_tracked_profiles()
-plotter.take_avg()
-plotter.add_plot('fluxes_v_time.png', fluxes, sum_fields=True)
-for f in fields:
-    plotter.add_plot('profile_{}.png'.format(f), f)
-plotter.save_profiles(fig_dir)
-plotter.make_plots(out_dir=fig_dir)
+if int(args['--fig_type']) == 1:
+    fnames = [(('s1',), {})]
 
+for tup in fnames:
+    plotter.add_colormesh(*tup[0], **tup[1])
 
+plotter_kwargs = { 'col_in' : int(args['--col_inch']), 'row_in' : int(args['--row_inch']) }
+plotter.plot_colormeshes(dpi=int(args['--dpi']), **plotter_kwargs)

@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 from docopt import docopt
 args = docopt(__doc__)
-from plot_logic.scalars import ScalarFigure, ScalarPlotter, ScalarConvergencePlotter
+from plot_logic.scalars import ScalarFigure, ScalarPlotter
 
 root_dir = args['<root_dir>']
 fig_name  = args['--fig_name']
@@ -52,7 +52,6 @@ fig5.add_field(0, 'M1')
 
 # Load in figures and make plots
 plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
-conv_plotter = ScalarConvergencePlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
-for p in [plotter, conv_plotter]:
-    p.load_figures([fig1, fig2, fig3, fig4, fig5])
-    p.plot_figures(dpi=int(args['--dpi']))
+plotter.load_figures([fig1, fig2, fig3, fig4, fig5])
+plotter.plot_figures(dpi=int(args['--dpi']))
+plotter.plot_convergence_figures(dpi=int(args['--dpi']))

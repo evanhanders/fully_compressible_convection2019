@@ -3,7 +3,7 @@ Script for plotting colormaps of the evolution of 1D profiles of a dedalus simul
 This script plots time evolution of the fields specified in 'fig_type'
 
 Usage:
-    plot_profiles.py <root_dir> [options]
+    plot_avg_profiles.py <root_dir> [options]
 
 Options:
     --fig_name=<fig_name>               Name of figure output directory & base name of saved figures [default: avg_profs]

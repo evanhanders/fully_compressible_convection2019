@@ -6,6 +6,8 @@ import h5py
 import numpy as np
 from mpi4py import MPI
 
+from dedalus.tools.parallel import Sync
+
 logger = logging.getLogger(__name__.split('.')[-1])
 
 
@@ -21,8 +23,8 @@ class FileReader:
         subdivided communicators based on desired processor distribution, split by sub_dirs
     file_lists : OrderedDict
         Contains lists of string paths to all files being processed for each dir in sub_dirs
-    idle : list
-        A list of bools. True if the local processor is not responsible for any files
+    idle : OrderedDict
+        A dict of bools. True if the local processor is not responsible for any files
     local_file_lists : OrderedDict
         lists of string paths to output files that this processor is responsible for reading, split by sub_dirs
     run_dir : str
@@ -66,7 +68,7 @@ class FileReader:
 
         self.local_file_lists = OrderedDict()
         self.distribution_comms = OrderedDict()
-        self.idle = []
+        self.idle = OrderedDict()
         self._distribute_files(**kwargs)
 
 
@@ -146,3 +148,49 @@ class FileReader:
             for t in tasks:
                 out_tasks[t] = f['tasks'][t][()]
         return out_bases, out_tasks, out_write_num, out_sim_time
+
+class SingleFiletypePlotter():
+    """
+    An abstract class for plotters that only deal with a single directory of
+    Dedalus data
+
+    Attributes:
+    -----------
+    fig_name : string
+        Base name of output figures
+    my_sync : Sync
+        Keeps processes synchronized in the code even when some are idle
+    out_dir : string
+        Path to location where pdf output files are saved
+    reader : FileReader
+        A file reader for interfacing with Dedalus files
+    """
+
+    def __init__(self, root_dir, file_dir, fig_name, n_files=None, **kwargs):
+        """
+        Initializes the profile plotter.
+
+        Attributes:
+        -----------
+        root_dir : string
+            Root file directory of output files
+        file_dir : string
+            subdirectory of root_dir where the data to make PDFs is contained
+        fig_name : string
+            As in class-level docstring
+        n_files  : int, optional
+            Number of files to process. If None, all of them.
+        **kwargs : Additional keyword arguments for FileReader()
+        """
+        self.reader = FileReader(root_dir, sub_dirs=[file_dir,], num_files=[n_files,], **kwargs)
+        self.fig_name = fig_name
+        self.out_dir  = '{:s}/{:s}/'.format(root_dir, fig_name)
+        if self.reader.comm.rank == 0 and not os.path.exists('{:s}'.format(self.out_dir)):
+            os.mkdir('{:s}'.format(self.out_dir))
+        self.my_sync = Sync(self.reader.comm)
+
+        self.files = self.reader.local_file_lists[file_dir]
+        self.idle  = self.reader.idle[file_dir]
+        self.dist_comm  = self.reader.distribution_comms[file_dir]
+
+
