@@ -221,7 +221,6 @@ class Polytrope(IdealGasAtmosphere):
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
         logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
 
-
 class DepthFinder:
 
     def __init__(self, nz=256):
@@ -244,6 +243,146 @@ class DepthFinder:
         self.ln_rho0_z.antidifferentiate('z', ('right', 0), out=self.ln_rho0)
         self.ln_rho0['g'] *= Lz
         self.H_rho['g'] = -1/self.ln_rho0_z['g']
+
+class TwoLayerIH(IdealGasAtmosphere):
+    """
+    An extension of an IdealGasAtmosphere for a very simple, 2-layer atmosphere,
+    nondimensionalized by default on the atmosphere's adiabatic temperature gradient and the
+    isothermal sound crossing time at the top.
+    """
+    def __init__(self, *args, **kwargs):
+        super(TwoLayerIH, self).__init__(*args, **kwargs)
+
+    def _prepare_scalar_info(self, epsilon=1e-4, n_rho_T=3, n_rho_B=1, gamma=5./3, R=1, tolerance=1e-12, stable_top=False):
+        """ Sets up scalar parameters in the atmosphere.
+
+        Parameters
+        ----------
+            epsilon : float
+                Magnitude of the IH / flux
+            gamma : float
+                Adiabatic index
+            R : float
+                Ideal gas constant (P = R rho T)
+        """
+        self.atmo_params['n_rho_T']       = n_rho_T
+        self.atmo_params['n_rho_B']       = n_rho_B
+        self.atmo_params['m_ad'] = self.m_ad = 1/(gamma-1)
+        self.atmo_params['g']    = self.g =  gamma*self.m_ad
+        if stable_top: epsilon *= -1
+        self.atmo_params['epsilon'] = self.epsilon = epsilon
+        print(stable_top)
+        self.atmo_params['stable_top'] = self.stable_top = stable_top
+
+        Ls = None
+        if MPI.COMM_WORLD.rank == 0:
+            finder = DepthFinder()
+
+            L_T = np.exp(n_rho_T/self.m_ad) - 1
+            L_B = np.exp((n_rho_T+n_rho_B)/self.m_ad) - 1 - L_T
+
+            max_diff = 1
+            while max_diff > tolerance:
+                Lz = L_B + L_T
+                logger.info('max_diff : {:.2e}'.format(max_diff))
+                logger.info('Lz: {:.2g}, LT: {:.2g}, LB: {:.2g}'.format(Lz, L_T, L_B))
+
+                A = -1./2
+                B = L_B
+                C = -(A*Lz**2 + B*Lz)
+                z = Lz*finder.z
+                finder.T0['g'] = 1 - (z-Lz) + self.epsilon*(A*z**2 + B*z + C)
+                finder.atmosphere_solve(self.g, Lz)
+
+                H_rho_bot_T  = np.mean(finder.H_rho.interpolate(z=L_B/Lz)['g'])
+                H_rho_bot_B = np.mean(finder.H_rho.interpolate(z=0)['g'])
+
+                this_n_rho_T = np.mean(finder.ln_rho0.interpolate(z=(L_B)/Lz)['g'])
+                this_n_rho_B = np.mean(finder.ln_rho0.interpolate(z=0)['g']) - this_n_rho_T
+
+                delta_nrho_T = n_rho_T - this_n_rho_T
+                delta_nrho_B = n_rho_B - this_n_rho_B
+
+                delta_L_B, delta_L_T =  delta_nrho_B*H_rho_bot_B, delta_nrho_T*H_rho_bot_T
+
+                max_diff = np.abs(np.array((delta_L_B/L_B, delta_L_T/L_T))).max()
+                L_B += delta_L_B
+                L_T += delta_L_T
+            Lz = L_B + L_T
+            Ls = (Lz, L_B, L_T)
+        Lz, L_B, L_T = MPI.COMM_WORLD.bcast(Ls, root=0)
+        self.atmo_params['Lz']   = self.Lz = Lz
+        self.atmo_params['L_T'] = self.L_T = L_T
+        self.atmo_params['L_B'] = self.L_B = L_B
+        logger.info('Solving in TwoLayer atmosphere with length scales:')
+        logger.info('   L_T = {:.2g}, L_B = {:.2g}'.format(L_T, L_B))
+        super(TwoLayerIH, self)._set_thermodynamics(gamma=gamma, R=R)
+
+    def build_atmosphere(self, de_domain):
+        """
+        Sets up atmosphere according to a polytropic stratification of the form:
+            T0 =  1 + (Lz - z) + quadratic
+            rho0 = T0**m 
+
+        Parameters
+        ----------
+            de_domain : DedalusDomain
+                Contains information about the domain where the problem is specified
+        """ 
+        self._make_atmo_fields(de_domain)
+        z = de_domain.z
+        epsilon = self.atmo_params['epsilon']
+        A = -1./2
+        B = self.L_B
+        C = -(A*self.Lz**2 + B*self.Lz)
+        T0 = 1 + self.atmo_params['T_ad_z']*(z - self.Lz) + epsilon*(A*z**2 + B*z + C) 
+        self.atmo_fields['T0']['g']      = T0
+        self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
+        self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])
+
+        self.atmo_fields['T0'].set_scales(1, keep_data=True)
+        self.atmo_fields['T0_z'].set_scales(1, keep_data=True)
+        self.atmo_fields['ln_rho0_z']['g'] = - (self.atmo_params['g'] + self.atmo_fields['T0_z']['g'] ) / self.atmo_fields['T0']['g']
+        self.atmo_fields['ln_rho0_z'].antidifferentiate('z', ('right', 0), out=self.atmo_fields['ln_rho0'])
+        self.atmo_fields['ln_rho0'].set_scales(1, keep_data=True)
+        self.atmo_fields['rho0']['g'] = np.exp(self.atmo_fields['ln_rho0']['g'])
+
+        self.atmo_fields['phi']['g'] = -self.atmo_params['g']*(1 + self.atmo_params['T_ad_z']*(z - self.Lz))
+
+        s0 = de_domain.domain.new_field()
+        s0['g'] = self.atmo_params['Cp']*(1/self.atmo_params['gamma'])*(np.log(self.atmo_fields['T0']['g']) - (self.atmo_params['gamma']-1)*self.atmo_fields['ln_rho0']['g'])
+        if self.stable_top:
+            self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.L_B)['g'])-np.mean(s0.interpolate(z=0)['g']))
+            self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.L_B*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
+        else:
+            self.atmo_params['delta_s'] = np.abs(np.mean(s0.interpolate(z=self.Lz)['g'])-np.mean(s0.interpolate(z=self.L_B)['g']))
+            self.atmo_params['t_buoy']   = np.sqrt(np.abs(self.L_T*self.atmo_params['Cp'] / self.atmo_params['g'] / self.atmo_params['delta_s']))
+        self.atmo_params['t_therm']  = 0 #fill in set_diffusivities
+        logger.info('Initialized TriLayer:')
+        logger.info('   epsilon = {:.2e}'.format(epsilon))
+        logger.info('   Lz = {:.4g}, t_buoy = {:.4g}'.format(self.atmo_params['Lz'], self.atmo_params['t_buoy']))
+
+    def set_diffusivites(self, chi_top, nu_top):
+        """
+        Specifies diffusivity profiles of initial conditions. Initial diffusivites go like 1/rho,
+        such that the dynamic diffusivites are constant in the initial atmosphere.
+
+        Parameters
+        ----------
+        chi_top : float
+            Thermal diffusivity at top of atmosphere (length^2 / time)
+        nu_top : float
+            Viscous diffusivity at top of atmosphere (length^2 / time)
+        """
+        self.atmo_fields['chi0']['g'] =  chi_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['nu0']['g']  =  nu_top/self.atmo_fields['rho0']['g']
+        self.atmo_fields['kappa0']['g'] =  chi_top
+        self.atmo_fields['mu0']['g']  =  nu_top
+        Lz = self.atmo_params['Lz']
+        self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
+        [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('kappa0', 'mu0', 'chi0', 'nu0', 'rho0')]
+        logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
+        logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
 
 class TriLayerIH(IdealGasAtmosphere):
     """
