@@ -195,7 +195,7 @@ class DedalusIVP(DedalusProblem):
             finally:
                 if not no_join:
                     logger.info('beginning join operation')
-                    post.merge_analysis(data_dir+'checkpoints')
+                    post.merge_analysis(data_dir+'checkpoint')
 
                     for key, task in analysis_tasks.items():
                         logger.info(task.base_path)
