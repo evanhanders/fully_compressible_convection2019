@@ -13,8 +13,9 @@ Options:
     --3D                       Run in 3D
 
     --thermal_BC=<bc>          A short string specifying the thermal boundary conditions:
-                                'flux'      : Fixed flux BCs (top & bot)
-                                'temp'      : Fixed temp BCs (top & bot)
+                                'flux'      : Fixed flux (top & bot)
+                                'temp'      : Fixed temp (top & bot)
+                                'entropy'   : Fixed entropy (top & bot)
                                 'flux_temp' : Fixed flux (bot) and temp (top)
                                 'temp_flux' : Fixed temp (bot) and flux (top)
                                 [default: flux_temp]
@@ -145,7 +146,8 @@ def FC_polytropic_convection(input_dict):
     thermal_BC = OrderedDict(( ('flux',      False),
                                ('temp',      False),
                                ('flux_temp', False),
-                               ('temp_flux', False) ))
+                               ('temp_flux', False),
+                               ('entropy',    False) ))
     velocity_BC = OrderedDict(( ('stress_free',      False),
                                 ('no_slip',          False) ))
     thermal_BC[input_dict['--thermal_BC']]   = True

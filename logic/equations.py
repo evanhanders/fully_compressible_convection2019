@@ -148,6 +148,11 @@ class FullyCompressibleEquations(Equations):
             self.de_problem.problem.add_bc("fixed_flux_R_LHS = fixed_flux_R_RHS")
             self.dirichlet_set.append('T1_z')
             self.dirichlet_set.append('T1')
+        elif BC_dict['entropy']:
+            logger.info("Thermal BC: fixed entropy")
+            self.de_problem.problem.add_bc(" left(T0*ln_rho1-Cv*T1/R)    =  left(Cv*(T0*log(1+T1/T0)-T1)/R)")
+            self.de_problem.problem.add_bc("right(T0*ln_rho1-Cv*T1/R)    = right(Cv*(T0*log(1+T1/T0)-T1)/R)")
+
         else:
             logger.error("Incorrect thermal boundary conditions specified")
             raise
