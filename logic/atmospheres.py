@@ -216,7 +216,7 @@ class Polytrope(IdealGasAtmosphere):
         self.atmo_fields['kappa0']['g'] =  chi_top
         self.atmo_fields['mu0']['g']  =  nu_top
         Lz = self.atmo_params['Lz']
-        self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz/2)['g'])
+        self.atmo_params['t_therm'] = Lz**2/np.mean(self.atmo_fields['chi0'].interpolate(z=Lz)['g'])
         [self.atmo_fields[k].set_scales(1, keep_data=True)  for k in ('chi0', 'nu0', 'rho0', 'mu0', 'kappa0')]
         logger.info('Atmosphere set with top of atmosphere chi = {:.2e}, nu = {:.2e}'.format(chi_top, nu_top))
         logger.info('Atmospheric (midplane t_therm)/t_buoy = {:.2e}'.format(self.atmo_params['t_therm']/self.atmo_params['t_buoy']))
@@ -271,15 +271,14 @@ class TwoLayerIH(IdealGasAtmosphere):
         self.atmo_params['g']    = self.g =  gamma*self.m_ad
         if stable_top: epsilon *= -1
         self.atmo_params['epsilon'] = self.epsilon = epsilon
-        print(stable_top)
         self.atmo_params['stable_top'] = self.stable_top = stable_top
 
         Ls = None
         if MPI.COMM_WORLD.rank == 0:
             finder = DepthFinder()
 
-            L_T = np.exp(n_rho_T/self.m_ad) - 1
-            L_B = np.exp((n_rho_T+n_rho_B)/self.m_ad) - 1 - L_T
+            L_T = np.exp(n_rho_T/(self.m_ad-epsilon)) - 1
+            L_B = np.exp((n_rho_T+n_rho_B)/(self.m_ad-epsilon)) - 1 - L_T
 
             max_diff = 1
             while max_diff > tolerance:
@@ -294,16 +293,25 @@ class TwoLayerIH(IdealGasAtmosphere):
                 finder.T0['g'] = 1 - (z-Lz) + self.epsilon*(A*z**2 + B*z + C)
                 finder.atmosphere_solve(self.g, Lz)
 
+                #Problem: grad T is approaching the value of g, passing through zero, and so is ln_rho0_z. So H_rho explodes.
+
                 H_rho_bot_T  = np.mean(finder.H_rho.interpolate(z=L_B/Lz)['g'])
                 H_rho_bot_B = np.mean(finder.H_rho.interpolate(z=0)['g'])
+                print('Hrho', H_rho_bot_T, H_rho_bot_B)
 
                 this_n_rho_T = np.mean(finder.ln_rho0.interpolate(z=(L_B)/Lz)['g'])
                 this_n_rho_B = np.mean(finder.ln_rho0.interpolate(z=0)['g']) - this_n_rho_T
 
+                print('nrho', this_n_rho_T, this_n_rho_B)
+
                 delta_nrho_T = n_rho_T - this_n_rho_T
                 delta_nrho_B = n_rho_B - this_n_rho_B
 
-                delta_L_B, delta_L_T =  delta_nrho_B*H_rho_bot_B, delta_nrho_T*H_rho_bot_T
+                print('dnrho', delta_nrho_T, delta_nrho_B)
+
+                delta_L_B, delta_L_T =  delta_nrho_B*H_rho_bot_B*np.exp(-delta_nrho_B), delta_nrho_T*H_rho_bot_T*np.exp(-delta_nrho_T)
+
+                print('dL', delta_L_B, delta_L_T)
 
                 max_diff = np.abs(np.array((delta_L_B/L_B, delta_L_T/L_T))).max()
                 L_B += delta_L_B
@@ -416,9 +424,9 @@ class TriLayerIH(IdealGasAtmosphere):
         if MPI.COMM_WORLD.rank == 0:
             finder = DepthFinder()
 
-            L_RT = np.exp(n_rho_rzT/self.m_ad) - 1
-            L_C  = np.exp((n_rho_cz+n_rho_rzT)/self.m_ad) - 1 - L_RT
-            L_RB = np.exp((n_rho_cz+n_rho_rzT+n_rho_rzB)/self.m_ad) - 1 - L_RT - L_C
+            L_RT = np.exp(n_rho_rzT/(self.m_ad-self.epsilon)) - 1
+            L_C  = np.exp((n_rho_cz+n_rho_rzT)/(self.m_ad-self.epsilon)) - 1 - L_RT
+            L_RB = np.exp((n_rho_cz+n_rho_rzT+n_rho_rzB)/(self.m_ad-self.epsilon)) - 1 - L_RT - L_C
 
             max_diff = 1
             while max_diff > tolerance:
@@ -445,8 +453,20 @@ class TriLayerIH(IdealGasAtmosphere):
                 delta_nrho_rzT = n_rho_rzT - this_n_rho_rzT
                 delta_nrho_cz  = n_rho_cz  - this_n_rho_cz
                 delta_nrho_rzB = n_rho_rzB - this_n_rho_rzB
+                import matplotlib.pyplot as plt
+                plt.plot(finder.ln_rho0['g'])
+                plt.show()
 
-                delta_L_RB, delta_L_C, delta_L_RT =  delta_nrho_rzB*H_rho_bot_rzB, delta_nrho_cz*H_rho_bot_cz, delta_nrho_rzT*H_rho_bot_rzT
+                delta_L_RB, delta_L_C, delta_L_RT =  np.array((delta_nrho_rzB*H_rho_bot_rzB, delta_nrho_cz*H_rho_bot_cz, delta_nrho_rzT*H_rho_bot_rzT))
+                if np.abs(delta_L_RT/L_RT) > 0.1:
+                    delta_L_RT /= np.abs(delta_L_RT) / ( 0.1*np.abs(delta_L_RT/L_RT))
+                    delta_L_C = 0
+                    delta_L_RB = 0
+                elif np.abs(delta_L_C/L_C) > 0.:
+                    delta_L_C /= np.abs(delta_L_C) / ( 0.1*np.abs(delta_L_C/L_C))
+                    delta_L_RB = 0
+                if np.abs(delta_L_RB/L_RB) > 0.1:
+                    delta_L_RB /= np.abs(delta_L_RB) /( 0.1*np.abs(delta_L_RB/L_RB))
 
                 max_diff = np.abs(np.array((delta_L_RB/L_RB, delta_L_C/L_C, delta_L_RT/L_RT))).max()
                 L_RB += delta_L_RB

@@ -172,24 +172,34 @@ class FieldAverager:
 class AveragerFCAE(FieldAverager):
 
     FIELDS = OrderedDict([
-                        ('F_conv',              'F_conv_z'),
-                        ('F_tot',       '(F_conv_z + F_cond_z)'),
+                        ('F_tot_superad',       '(F_conv_z + F_cond_z - F_cond_ad_z)'),
+                        ('integ_IE',            'vol_avg(IE_fluc)*Lz'),
+#                        ('F_Tzz',               '(dz(dz( -UdotGrad(T1, T1_z) - (T1)*(gamma-1)*Div_u + L_thermal + R_thermal + R_visc_heat)))'),
+#                        ('F_Tz',                '(dz( -UdotGrad(T1, T1_z) - (T1)*(gamma-1)*Div_u + L_thermal + R_thermal + R_visc_heat))'),
+                        ('F_Tzz',          '(dz(dz( -UdotGrad(T1, T1_z) - (T1+T0)*(gamma-1)*Div_u - w*T0_z + L_thermal + R_thermal + R_visc_heat)))'),
+                        ('F_Tz',           '(dz(    -UdotGrad(T1, T1_z) - (T1+T0)*(gamma-1)*Div_u - w*T0_z + L_thermal + R_thermal + R_visc_heat))'),
+                        ('s1_in',               's1'),
                             ])
     OUT_DIR = 'averager_FCAE'
 
 class AveragerFCStructure(FieldAverager):
 
     FIELDS = OrderedDict([
-                        ('T1_IVP',              'T1'),
+                        ('visc_forcing',       '(L_visc_w + R_visc_w)'),
+                        ('T1_in',              'T1'),
+                        ('T1_z_in',            'T1_z'),
+                        ('T1_zz_in',           'dz(T1_z)'),
+                        ('s1_z_in',            'dz(s1)'),
+                        ('udotgradW',          '(UdotGrad(w, w_z))'),
+                        ('F_conv',              'F_conv_z'),
+                        ('F_tot',               '(F_conv_z + F_cond_z)'),
                         ('ln_rho1_IVP',         'ln_rho1'),
                         ('rho_fluc_IVP',        'rho_fluc'),
                         ('mu',                  'mu_full'),
                         ('kappa',               'kappa_full'),
-                        ('udotgradW',           '(UdotGrad(w, w_z))'),
-                        ('F_tot_superad',       '(F_conv_z + F_cond_z - F_cond_ad_z)'),
-                        ('std_T1',              'plane_std(T1)')
+                        ('std_T1',              'plane_std(T1)'),
+                        ('flux_diff',           '(left(F_cond_z) - right(F_cond_z))')
 #                        ('T1_dzlnrho1_fluc',    '((T1-plane_avg(T1))*dz(ln_rho1-plane_avg(ln_rho1)))'),
-#                        ('viscous_w',           '(L_visc_w + R_visc_w)'),
                             ])
     OUT_DIR = 'averager_FCStructure'
 

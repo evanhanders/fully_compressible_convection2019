@@ -35,7 +35,7 @@ Options:
 
     --run_time_wall=<t>        Run time, in wall hours [default: 23.5]
     --run_time_buoy=<t>        Run time, in simulation buoyancy times
-    --run_time_therm=<t>       Run time, in simulation thermal times [default: 1]
+    --run_time_therm=<t>       Run time, in simulation thermal times [default: 6]
     --run_time_restarted       If flagged, try to run exactly run_time_buoy or run_time_therm from the current sim time
 
     --root_dir=<dir>           Root directory for output [default: ./]
@@ -248,7 +248,7 @@ def FC_polytropic_convection(input_dict):
         pre_loop_args = ((AveragerFCAE, AveragerFCStructure), (True, False), data_dir, atmo_kwargs, CompressibleConvection, experiment_args, experiment_kwargs)
         task_kwargs = {}
         pre_loop_kwargs = { 'sim_time_start' : int(args['--ae_start_time'])*atmosphere.atmo_params['t_buoy'], 
-                            'min_bvp_time' : 10*atmosphere.atmo_params['t_buoy'], 
+                            'min_bvp_time' : 20*atmosphere.atmo_params['t_buoy'], 
                             'between_ae_wait_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'later_bvp_time' : 20*atmosphere.atmo_params['t_buoy'],
                             'ae_convergence' : 1e-2, 

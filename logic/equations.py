@@ -268,6 +268,7 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.substitutions['PE']        = '(rho_full*phi)'
         self.de_problem.problem.substitutions['IE']        = '(rho_full*Cv*T_full)'
         self.de_problem.problem.substitutions['TE']        = '(KE + PE + IE)'
+        self.de_problem.problem.substitutions['TE_0']      = '(rho0*(phi+Cv*T0))'
         self.de_problem.problem.substitutions['h']         = '(IE + P)'
         self.de_problem.problem.substitutions['PE_fluc']   = '(rho_fluc*phi)'
         self.de_problem.problem.substitutions['IE_fluc']   = '(rho_full*Cv*T1 + rho_fluc*Cv*T0)'
@@ -342,27 +343,14 @@ class KappaMuFCE(FullyCompressibleEquations):
         self.de_problem.problem.substitutions['thermal'] = ('( ((1/Cv))*(kappa_full*Lap(T1, T1_z) + kappa_full_z*T1_z) )')
 
         self.de_problem.problem.substitutions['scale_c']    = '(T0)'
-        if type(self.atmosphere) in (Polytrope,):# TriLayerIH): #Makes polytropes a low bandwidth problem
-#            self.de_problem.problem.substitutions['scale_m_z']  = '(T0)'
-            #self.de_problem.problem.substitutions['scale_m']    = '(T0)'
-            #self.de_problem.problem.substitutions['scale_e']    = '(T0)'
-            self.de_problem.problem.parameters['scale_m']      = 1
-            self.de_problem.problem.parameters['scale_m_z']    = 1
-            self.de_problem.problem.parameters['scale_e']      = 1
+        self.de_problem.problem.parameters['scale_m']       = 1
+        self.de_problem.problem.parameters['scale_m_z']     = 1
+        self.de_problem.problem.parameters['scale_e']       = 1
 
-            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
-            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v)"
-            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w)"                
-            self.de_problem.problem.substitutions['L_thermal'] = "(thermal)"
-        else:
-            self.de_problem.problem.parameters['scale_m_z']  = 1
-            self.de_problem.problem.parameters['scale_m']    = 1
-            self.de_problem.problem.parameters['scale_e']    = 1
-
-            self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
-            self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v)"
-            self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w)"                
-            self.de_problem.problem.substitutions['L_thermal'] = "(thermal)"
+        self.de_problem.problem.substitutions['L_visc_u']  = "(visc_u)"
+        self.de_problem.problem.substitutions['L_visc_v']  = "(visc_v)"
+        self.de_problem.problem.substitutions['L_visc_w']  = "(visc_w)"                
+        self.de_problem.problem.substitutions['L_thermal'] = "(thermal)"
 
         self.de_problem.problem.substitutions['R_visc_u'] = "(visc_u/rho_full - L_visc_u)"
         self.de_problem.problem.substitutions['R_visc_v'] = "(visc_v/rho_full - L_visc_v)"
@@ -386,12 +374,12 @@ class AEKappaMuFCE(Equations):
     Accelerated Evolution equations in a Kappa/Mu formulation.
     """
 
-    def __init__(self, thermal_BC_dict, avg_field_dict, scale_ae_to_sim, *args, ncc_cutoff=1e-10, kx=0, ky=0):
+    def __init__(self, thermal_BC_dict, avg_field_dict, scale_ae_to_sim, elapsed_time, *args, ncc_cutoff=1e-10, first=False, kx=0, ky=0):
         super(AEKappaMuFCE, self).__init__(*args)
-        variables = ['T1', 'T1_z', 'ln_rho1', 'M1', 'delta_s1']
+        variables = ['T1', 'T1_z', 'ln_rho1', 'M1', 'delta_s1', 'Raf']
 
         self.de_problem.set_variables(variables, ncc_cutoff=ncc_cutoff)
-        self._set_parameters(avg_field_dict, scale_ae_to_sim)
+        self._set_parameters(avg_field_dict, scale_ae_to_sim, elapsed_time, first=first)
         self._set_equations()
         self._set_BCs(thermal_BC_dict)
     
@@ -404,7 +392,8 @@ class AEKappaMuFCE(Equations):
         (2) A simple definition of T1_z
         (3) A mass-accounting equation
         (4) Modified hydrostatic equilibrium
-        (5) Vertical energy balance
+        (5) Temperature profile forcing
+        (6) Some sort of measure of the ratio of the old effective Ra to the new effective Ra.
         
 
         In the last equation, we use the FULL energy equation, and only ensure
@@ -418,24 +407,16 @@ class AEKappaMuFCE(Equations):
         """
         self.de_problem.problem.substitutions['AE_rho_full'] = '(rho0* exp(ln_rho1))'
         self.de_problem.problem.substitutions['AE_rho_fluc'] = '(rho0*(exp(ln_rho1) - 1))'
-        self.de_problem.problem.substitutions['P0'] = '(R*rho0*T0)'
-        self.de_problem.problem.substitutions['Xi_adj_mean'] = 'integ(Xi)/Lz'
         self.de_problem.problem.substitutions['s1'] = '(Cv*log(1+T1/T0) - R*ln_rho1)'
+        self.de_problem.problem.substitutions['exp_timestep'] = '(right(T1_z_in) - left(T1_z_in))/(left(F_Tz) - right(F_Tz))' #Need to fix this to specialize it for different flux BCs...might already do that OK
 
-        logger.debug('setting delta s defn')
         self.de_problem.problem.add_equation("delta_s1 = right(s1) - left(s1)")
-
-        logger.debug('setting T1_z eqn')
         self.de_problem.problem.add_equation("dz(T1) - T1_z = 0")
-
-        logger.debug('setting mass eqn')
         self.de_problem.problem.add_equation("dz(M1) = AE_rho_fluc")
-
-        logger.debug('Setting energy equation')
-        self.de_problem.problem.add_equation("kappa*dz(T1_z) = dz(Xi * F_conv)")
-        
-        logger.debug('Setting HS equation')
-        self.de_problem.problem.add_equation("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) = -T1 * dz(ln_rho1) - ( Xi_adj_mean**(2./3) )*udotgradW")
+        self.de_problem.problem.add_equation("T1_z + T1*dz(ln_rho0) + T0*dz(ln_rho1) = -T1 * dz(ln_rho1) - ( Raf**2 )*udotgradW + Raf*visc_forcing")
+        self.de_problem.problem.add_equation("dz(T1_z) = T1_zz_in + F_Tzz*exp_timestep") #perhaps the dt here should be defined as the timestep necessary to make left flux = right flux.
+#       self.de_problem.problem.add_equation("exp_timestep*(left(F_Tz) - right(F_Tz)) = right(T1_z_in) - left(T1_z_in)")
+        self.de_problem.problem.add_equation("Raf = sqrt(((integ(T1_z + T0_z - T_ad_z)) / (integ(T1_z_in + T0_z - T_ad_z)))**2)")
         
     def _set_BCs(self, thermal_BC_dict):
         """ 
@@ -456,60 +437,20 @@ class AEKappaMuFCE(Equations):
             self.de_problem.problem.add_bc('right(T1) = 0')
         self.de_problem.problem.add_bc('right(M1) = 0')
         self.de_problem.problem.add_bc('left(M1) = 0')
-        for key in ['T1', 'T1_z', 'M1']:
-            self.de_problem.problem.meta[key]['z']['dirichlet'] = True
 
-    def _set_parameters(self, field_dict, scale_ae_to_sim):
-        for k in ['F_tot', 'udotgradW', 'kappa', 'F_conv', 'ln_rho1_IVP']:#, 'T1_dzlnrho1_fluc', 'viscous_w'
+    def _set_parameters(self, field_dict, scale_ae_to_sim, elapsed_time, f=1./3, first=False):
+
+        dt  = -(np.exp(-f) - 1)*self.atmosphere.atmo_params['t_therm']*np.exp(-elapsed_time/2/self.atmosphere.atmo_params['t_therm']) #f is fraction of thermal time
+#        self.de_problem.problem.parameters['exp_timestep'] = dt
+        for k in ['T1_in', 'T1_z_in', 'T1_zz_in', 's1_in', 's1_z_in', 'udotgradW', 'visc_forcing', 'F_Tz', 'F_Tzz']:
             this_field = self.de_domain.new_ncc()
             this_field.set_scales(scale_ae_to_sim, keep_data=False)
             this_field['g'] = field_dict[k]
-            if k == 'ln_rho1_IVP':
-                deriv_field = self.de_domain.new_ncc()
-                this_field.differentiate('z', out=deriv_field)
-                self.de_problem.problem.parameters['ln_rho1_IVP_z'] = deriv_field
-            if k == 'kappa':
-                #This logic allows for AE in domains with stable layers
-                self.de_domain.atmosphere.atmo_fields['T0_z'].set_scales(scale_ae_to_sim, keep_data=True)
-                F_avail = self.de_domain.new_ncc()
-                F_avail.set_scales(scale_ae_to_sim, keep_data=False)
-                flux_ad = -field_dict[k]*self.de_domain.atmosphere.atmo_params['T_ad_z']
-                F_avail['g'] = -field_dict[k]*(self.de_domain.atmosphere.atmo_fields['T0_z']['g']) - flux_ad
-                self.de_problem.problem.parameters['F_avail'] = F_avail
-                if np.min(F_avail['g']) > 0:
-                    self.de_problem.problem.parameters['offset'] = offset = 0
-                else:
-                    avail_max = np.max(F_avail['g'])
-                    tot_max = np.max(field_dict['F_tot'] - flux_ad)
-                    true_max = np.max((avail_max, tot_max))
-                    self.de_problem.problem.parameters['offset'] = offset = true_max/10
-
-
-                Xi = self.de_domain.new_ncc()
-                Xi.set_scales(scale_ae_to_sim, keep_data=False)
-                F_avail.set_scales(scale_ae_to_sim, keep_data=True)
-                Xi['g'] = np.sqrt((F_avail['g']**2 + offset**2) / ((field_dict['F_tot'] - flux_ad)**2 + offset**2))
-#                if offset != 0:
-#                    F_avail.set_scales(scale_ae_to_sim, keep_data=True)
-#                    Xi.set_scales(scale_ae_to_sim, keep_data=True)
-#                    true_xi = F_avail['g']/(field_dict['F_tot'] - flux_ad)
-#                    xi_factor = (true_xi - 1) / (Xi['g'] - 1)
-#
-#                    good_vals = field_dict['F_conv'] > 0.25*np.max(field_dict['F_conv'])
-#                    mult_factor = np.median(xi_factor[good_vals])
-#                    max_loc = np.argmax(field_dict['F_tot'] - flux_ad)
-#                    min_loc = np.argmin(field_dict['F_tot'] - flux_ad)
-#                    mult_factor_max =  (F_avail['g'][max_loc]/(field_dict['F_tot'][max_loc] - flux_ad) - 1) / (Xi['g'][max_loc] - 1)
-#                    F_avail.set_scales(scale_ae_to_sim, keep_data=True)
-#                    Xi.set_scales(scale_ae_to_sim, keep_data=True)
-#                    mult_factor_min =  (F_avail['g'][min_loc]/(field_dict['F_tot'][min_loc] - flux_ad) - 1) / (Xi['g'][min_loc] - 1)
-#                    mult_factor = np.max((mult_factor_max, mult_factor_min))
-#                    Xi['g'] -= 1
-#                    Xi['g'] *= mult_factor
-#                    Xi['g'] += 1
-
-                self.de_problem.problem.parameters['Xi'] = Xi
-
+#            if first is False and k == 'F_Tzz': continue
+#            if first is True and k == 'F_tzz_full': continue
+#            elif k == 'F_Tzz_full': 
+#                self.de_problem.problem.parameters['F_Tzz'] = this_field 
+#                continue
             self.de_problem.problem.parameters[k] = this_field 
 
         for k, fd in self.atmosphere.atmo_fields.items():

@@ -324,6 +324,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
         self.min_bvp_threshold = min_bvp_threshold
         self.min_bvp_time = self.later_bvp_time  = min_bvp_time
         self.sim_time_start = self.sim_time_wait = sim_time_start
+        self.num_ae_solves = 0
         if between_ae_wait_time is not None:
             self.sim_time_wait = between_ae_wait_time 
         if later_bvp_time is not None:
@@ -405,7 +406,9 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                 #Solve BVP
                 if self.de_domain.domain.dist.comm_cart.rank == 0:
                     de_problem = DedalusNLBVP(self.AE_domain)
-                    equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.scale_ae_to_sim, self.AE_atmo, self.AE_domain, de_problem)
+                    if self.num_ae_solves == 0: first_solve=True
+                    else: first_solve=False
+                    equations  = AEKappaMuFCE(thermal_BC_dict, avg_fields, self.scale_ae_to_sim, averager.elapsed_avg_time, self.AE_atmo, self.AE_domain, de_problem, first=first_solve)
                     de_problem.build_solver()
                     de_problem.solve_BVP()
                 else:
@@ -426,6 +429,7 @@ class AcceleratedEvolutionIVP(DedalusIVP):
                     self.bvp_threshold = self.min_bvp_threshold
                 else:
                     self.bvp_threshold /= 2
+                self.num_ae_solves += 1
 
     def update_simulation_fields(self, de_problem):
         """ Updates simulation solver states """
@@ -456,48 +460,24 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         """ Communicates AE solve info from process 0 to all processes """
         ae_profiles = OrderedDict()
         ae_profiles['T1'] = np.zeros(self.de_domain.resolution[0]*1)
-        ae_profiles['Xi'] = np.zeros(self.de_domain.resolution[0]*1)
-        ae_profiles['T1_z'] = np.zeros(self.de_domain.resolution[0]*1)
         ae_profiles['ln_rho1'] = np.zeros(self.de_domain.resolution[0]*1)
-        ae_profiles['Xi_mean'] = np.zeros(1)
+        ae_profiles['Raf'] = np.zeros(1)
         ae_profiles['delta_s1'] = np.zeros(1)
-        full_scalar = np.zeros(1)
-        full = np.zeros(self.de_domain.resolution[0]*1)
 
         if self.de_domain.domain.dist.comm_cart.rank == 0:
             T1 = de_problem.solver.state['T1']
-            Xi = de_problem.problem.parameters['Xi']
-            T1_z = de_problem.solver.state['T1_z']
+            Raf = de_problem.solver.state['Raf']
             ln_rho1 = de_problem.solver.state['ln_rho1']
             delta_s1 = de_problem.solver.state['delta_s1']
             T1.set_scales(self.scale_ae_to_sim, keep_data=True)
-            Xi.set_scales(self.scale_ae_to_sim, keep_data=True)
-            T1_z.set_scales(self.scale_ae_to_sim, keep_data=True)
             ln_rho1.set_scales(self.scale_ae_to_sim, keep_data=True)
             ae_profiles['T1'] = np.copy(T1['g'])
-            ae_profiles['Xi'] = np.copy(Xi['g'])
-            ae_profiles['T1_z'] = np.copy(T1_z['g'])
             ae_profiles['ln_rho1'] = np.copy(ln_rho1['g'])
-            ae_profiles['Xi_mean'] = np.mean(Xi.integrate()['g'])/de_problem.problem.parameters['Lz']
+            ae_profiles['Raf'] = np.mean(Raf.integrate()['g'])/de_problem.problem.parameters['Lz']
             ae_profiles['delta_s1'] = np.mean(delta_s1['g'])
 
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1'], full, op=MPI.SUM)
-        ae_profiles['T1'][:] = full*1.
-        full *= 0
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['Xi'], full, op=MPI.SUM)
-        ae_profiles['Xi'][:] = full*1.
-        full *= 0
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['T1_z'], full, op=MPI.SUM)
-        ae_profiles['T1_z'][:] = full*1.
-        full *= 0
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['ln_rho1'], full, op=MPI.SUM)
-        ae_profiles['ln_rho1'][:] = full*1.
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['Xi_mean'], full_scalar, op=MPI.SUM)
-        ae_profiles['Xi_mean'] = full_scalar*1.
-        full_scalar *= 0
-        self.de_domain.domain.dist.comm_cart.Allreduce(ae_profiles['delta_s1'], full_scalar, op=MPI.SUM)
-        ae_profiles['delta_s1'] = full_scalar*1.
-        full_scalar *= 0
+        for profile in ('T1', 'ln_rho1', 'Raf', 'delta_s1'):
+            ae_profiles[profile] = self.de_domain.domain.dist.comm_cart.bcast(ae_profiles[profile], root=0)
         return ae_profiles
         
     def update_simulation_fields(self, ae_profiles, avg_fields):
@@ -505,13 +485,12 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
 
         z_slices = self.de_domain.domain.dist.grid_layout.slices(scales=1)[-1]
 
-        u_scaling = ae_profiles['Xi_mean']**(1./3)
-        thermo_scaling = u_scaling**(2)
+        u_scaling = ae_profiles['Raf']**(1./2)
+        thermo_scaling = u_scaling
 
         #Calculate instantaneous thermo profiles
-        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'T1_z_avg', 'ln_rho1_avg', 'rho_fluc_avg', 'delta_s1')]
+        [self.flow.properties[f].set_scales(1, keep_data=True) for f in ('T1_avg', 'ln_rho1_avg', 'rho_fluc_avg', 'delta_s1')]
         T1_prof = self.flow.properties['T1_avg']['g']
-        T1_z_prof = self.flow.properties['T1_z_avg']['g']
         ln_rho_prof = self.flow.properties['ln_rho1_avg']['g']
         rho_fluc_prof = self.flow.properties['rho_fluc_avg']['g']
         old_delta_s1 = np.mean(self.flow.properties['delta_s1']['g'])
@@ -520,6 +499,9 @@ class FCAcceleratedEvolutionIVP(AcceleratedEvolutionIVP):
         T1 = self.solver.state['T1']
         T1_z = self.solver.state['T1_z']
         ln_rho1 = self.solver.state['ln_rho1']
+
+        for k in ae_profiles.keys():
+            print(k, ae_profiles[k])
 
         #Adjust Temp
         T1.set_scales(1, keep_data=True)
