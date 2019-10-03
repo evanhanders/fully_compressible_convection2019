@@ -50,8 +50,12 @@ fig4.add_field(4, 'TE_fluc')
 fig5 = ScalarFigure(1, 1, col_in=6, fig_name='mass_integ_change')
 fig5.add_field(0, 'M1')
 
+# Mach number
+fig6 = ScalarFigure(1, 1, col_in=6, fig_name='mach_number')
+fig6.add_field(0, 'Ma_ad_rms')
+
 # Load in figures and make plots
 plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
-plotter.load_figures([fig1, fig2, fig3, fig4, fig5])
+plotter.load_figures([fig1, fig2, fig3, fig4, fig5, fig6])
 plotter.plot_figures(dpi=int(args['--dpi']))
 plotter.plot_convergence_figures(dpi=int(args['--dpi']))

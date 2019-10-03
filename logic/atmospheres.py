@@ -277,8 +277,8 @@ class TwoLayerIH(IdealGasAtmosphere):
         if MPI.COMM_WORLD.rank == 0:
             finder = DepthFinder()
 
-            L_T = np.exp(n_rho_T/(self.m_ad-epsilon)) - 1
-            L_B = np.exp((n_rho_T+n_rho_B)/(self.m_ad-epsilon)) - 1 - L_T
+            L_T = np.exp(n_rho_T/(self.m_ad)) - 1
+            L_B = np.exp((n_rho_T+n_rho_B)/(self.m_ad)) - 1 - L_T
 
             max_diff = 1
             while max_diff > tolerance:
@@ -290,7 +290,9 @@ class TwoLayerIH(IdealGasAtmosphere):
                 B = L_B
                 C = -(A*Lz**2 + B*Lz)
                 z = Lz*finder.z
-                finder.T0['g'] = 1 - (z-Lz) + self.epsilon*(A*z**2 + B*z + C)
+                if stable_top: eff_eps = self.epsilon/L_B
+                else: eff_eps = self.epsilon/L_T
+                finder.T0['g'] = 1 - (z-Lz) + eff_eps*(A*z**2 + B*z + C)
                 finder.atmosphere_solve(self.g, Lz)
 
                 #Problem: grad T is approaching the value of g, passing through zero, and so is ln_rho0_z. So H_rho explodes.
@@ -343,7 +345,10 @@ class TwoLayerIH(IdealGasAtmosphere):
         A = -1./2
         B = self.L_B
         C = -(A*self.Lz**2 + B*self.Lz)
-        T0 = 1 + self.atmo_params['T_ad_z']*(z - self.Lz) + epsilon*(A*z**2 + B*z + C) 
+
+        if self.stable_top: eff_eps = self.epsilon/self.L_B
+        else: eff_eps = self.epsilon/self.L_T
+        T0 = 1 + self.atmo_params['T_ad_z']*(z - self.Lz) + eff_eps*(A*z**2 + B*z + C) 
         self.atmo_fields['T0']['g']      = T0
         self.atmo_fields['T0'].differentiate('z', out=self.atmo_fields['T0_z'])
         self.atmo_fields['T0_z'].differentiate('z', out=self.atmo_fields['T0_zz'])
