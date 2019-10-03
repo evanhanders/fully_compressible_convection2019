@@ -126,8 +126,9 @@ def FC_polytropic_convection(input_dict):
     from logic.atmospheres   import Polytrope
     from logic.domains       import DedalusDomain
     from logic.experiments   import CompressibleConvection
-    from logic.problems      import DedalusIVP, FCAcceleratedEvolutionIVP
+    from logic.problems      import DedalusIVP
     from logic.equations     import KappaMuFCE
+    from logic.ae_tools      import FCAcceleratedEvolutionIVP
     from logic.outputs       import initialize_output, ae_initialize_output
     from logic.checkpointing import Checkpoint
     from logic.field_averager import AveragerFCAE, AveragerFCStructure
@@ -199,7 +200,16 @@ def FC_polytropic_convection(input_dict):
     else:
         problem_type = DedalusIVP
     de_problem = problem_type(de_domain)
-    equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
+   
+    eqn_args = (thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
+    if eps > 0.5:
+        class HighEpsKappaMuFCE(KappaMuFCE):
+            def _set_continuity_eqn(self):
+                """ Recast T0*momentum equation for the polytrope case. T0*ln_rho0_z = T0_z/m, where m is polytropic index """
+                self.de_problem.problem.add_equation((    "T0*dt(ln_rho1)   + w*T0_z/m + T0*Div_u = (T0)*(- UdotGrad(ln_rho1, dz(ln_rho1)))"))
+        equations = HighEpsKappaMuFCE(*eqn_args)
+    else:
+        equations = KappaMuFCE(thermal_BC, velocity_BC, atmosphere, de_domain, de_problem)
 
     # Build solver, set stop times
     de_problem.build_solver(de.timesteppers.RK222)

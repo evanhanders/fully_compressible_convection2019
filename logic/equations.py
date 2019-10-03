@@ -68,21 +68,10 @@ class FullyCompressibleEquations(Equations):
         as in e.g., Lecoanet et al. 2014 or Anders, Lecoanet, and Brown 2019.
         """ 
         self._specify_forcings()
-        self.de_problem.problem.add_equation(    "dz(u) - u_z = 0")
-        if self.de_domain.dimensions == 3:
-            self.de_problem.problem.add_equation("dz(v) - v_z = 0")
-        self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
-        self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
-        self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u) = (scale_c)*(- UdotGrad(ln_rho1, dz(ln_rho1)))"))
-        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) - L_visc_w + L_w_force) = "
-                                                                "(scale_m_z)*(- UdotGrad(w, w_z) - T1*(ln_rho0_z + dz(ln_rho1)) + R_visc_w + R_w_force)"))
-        self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u + L_u_force) = "
-                                                                   "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u + R_u_force)"))
-        if self.de_domain.dimensions == 3:
-            self.de_problem.problem.add_equation(("(scale_m)*( dt(v) + dy(T1)   + T0*dy(ln_rho1)                  - L_visc_v + L_v_force) = "
-                                                                   "(scale_m)*(-UdotGrad(v, v_z) - T1*dy(ln_rho1) + R_visc_v + R_v_force)"))
-        self.de_problem.problem.add_equation((    "(scale_e)*( dt(T1)   + w*T0_z  + (gamma-1)*T0*Div_u -  L_thermal + L_thermal_force) = "
-                                       "(scale_e)*(-UdotGrad(T1, T1_z) - (gamma-1)*T1*Div_u + R_thermal + R_visc_heat + source_terms + R_thermal_force)"))
+        self._set_definitional_eqns()
+        self._set_continuity_eqn()
+        self._set_momentum_eqns()
+        self._set_energy_eqn()
 
     def _specify_forcings(self):
         """ A general function for adding forcings (rotation, MHD, etc.) to the FC equations """
@@ -94,6 +83,34 @@ class FullyCompressibleEquations(Equations):
         self.de_problem.problem.parameters['R_v_force'] = 0
         self.de_problem.problem.parameters['R_w_force'] = 0
         self.de_problem.problem.parameters['R_thermal_force'] = 0
+
+    def _set_definitional_eqns(self):
+        """ Set equations required to make system a first order set of PDEs, and other defns """
+        self.de_problem.problem.add_equation(    "dz(u) - u_z = 0")
+        if self.de_domain.dimensions == 3:
+            self.de_problem.problem.add_equation("dz(v) - v_z = 0")
+        self.de_problem.problem.add_equation(    "dz(w) - w_z = 0")
+        self.de_problem.problem.add_equation(    "dz(T1) - T1_z = 0")
+
+    def _set_continuity_eqn(self):
+        """ Set the continuity equation for density evolution """
+        self.de_problem.problem.add_equation((    "(scale_c)*( dt(ln_rho1)   + w*ln_rho0_z + Div_u) = (scale_c)*(- UdotGrad(ln_rho1, dz(ln_rho1)))"))
+
+    def _set_momentum_eqns(self):
+        """ Set the momentum equations for velocity evolution """
+        self.de_problem.problem.add_equation(    ("(scale_m_z)*( dt(w) + T1_z     + T0*dz(ln_rho1) - L_visc_w + L_w_force) = "
+                                                                "(scale_m_z)*(- UdotGrad(w, w_z) - T1*(ln_rho0_z + dz(ln_rho1)) + R_visc_w + R_w_force)"))
+        self.de_problem.problem.add_equation(    ("(scale_m)*( dt(u) + dx(T1)   + T0*dx(ln_rho1)                  - L_visc_u + L_u_force) = "
+                                                                   "(scale_m)*(-UdotGrad(u, u_z) - T1*dx(ln_rho1) + R_visc_u + R_u_force)"))
+        if self.de_domain.dimensions == 3:
+            self.de_problem.problem.add_equation(("(scale_m)*( dt(v) + dy(T1)   + T0*dy(ln_rho1)                  - L_visc_v + L_v_force) = "
+                                                                   "(scale_m)*(-UdotGrad(v, v_z) - T1*dy(ln_rho1) + R_visc_v + R_v_force)"))
+
+    def _set_energy_eqn(self):
+        """ Set the energy equation for temperature evolution """
+        self.de_problem.problem.add_equation((    "(scale_e)*( dt(T1)   + w*T0_z  + (gamma-1)*T0*Div_u -  L_thermal + L_thermal_force) = "
+                                       "(scale_e)*(-UdotGrad(T1, T1_z) - (gamma-1)*T1*Div_u + R_thermal + R_visc_heat + source_terms + R_thermal_force)"))
+
 
     def _set_BC(self, thermal_BC_dict, velocity_BC_dict):
         """

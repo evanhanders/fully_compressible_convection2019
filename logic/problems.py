@@ -12,16 +12,10 @@ from dedalus import public as de
 from dedalus.extras import flow_tools
 from dedalus.tools  import post
 
-try:
-    from checkpointing import Checkpoint
-    from domains import DedalusDomain
-    from equations import AEKappaMuFCE
-except:
-    from sys import path
-    path.insert(0, './logic')
-    from logic.checkpointing import Checkpoint
-    from logic.domains import DedalusDomain
-    from logic.equations import AEKappaMuFCE
+from sys import path
+path.insert(0, './logic')
+from logic.checkpointing import Checkpoint
+from logic.domains import DedalusDomain
 
 
 

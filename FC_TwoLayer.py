@@ -134,8 +134,9 @@ def FC_TwoLayer_convection(input_dict):
     from logic.atmospheres   import TwoLayerIH
     from logic.domains       import DedalusDomain
     from logic.experiments   import CompressibleConvection
-    from logic.problems      import DedalusIVP, FCAcceleratedEvolutionIVP
+    from logic.problems      import DedalusIVP
     from logic.equations     import KappaMuFCE
+    from logic.ae_tools      import FCAcceleratedEvolutionIVP
     from logic.outputs       import initialize_output, ae_initialize_output
     from logic.checkpointing import Checkpoint
     from logic.field_averager import AveragerFCAE, AveragerFCStructure
